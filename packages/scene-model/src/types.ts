@@ -1145,6 +1145,7 @@ export interface LayerEffects {
 export type EffectType =
   | 'blur'
   | 'backdrop-blur'
+  | 'box-shadow'
   | 'drop-shadow'
   | 'glow'
   | 'brightness'

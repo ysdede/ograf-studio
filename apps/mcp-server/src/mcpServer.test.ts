@@ -1479,7 +1479,8 @@ describe('OGraf MCP authoring host', () => {
         'ograf_export_package',
       ]),
     );
-    expect(providerToolWireBytes(records)).toBeLessThanOrEqual(75_000);
+    // 75 000 plus room for the text direction values and the box-shadow parameters (blur, spread).
+    expect(providerToolWireBytes(records)).toBeLessThanOrEqual(75_100);
   });
 
   it('requires and preserves the original user prompt when creating a template through MCP', async () => {

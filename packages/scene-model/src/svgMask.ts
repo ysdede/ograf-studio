@@ -1,6 +1,14 @@
 import { clipPathSvgForParentBounds } from './clipping';
 import { layerCropPolygon } from './layerCrop';
-import { effectStackToSvg, effectStackPadding } from './effectRendering';
+import {
+  effectStackBoxShadowCss,
+  effectStackBoxShadowSvg,
+  effectStackToSvg,
+  effectStackPadding,
+} from './effectRendering';
+import { getEffectStack } from './effectStack';
+import { cornerRadiiToCss } from './cornerRadii';
+import { paintToCss } from './paint';
 import { getPaintAtFrame } from './layerAnimation';
 import { relativeTransformMatrix } from './masking';
 import { tilingSvgContent } from './tilingSvg';
@@ -30,6 +38,19 @@ export interface MaskRenderState {
   patternFrame?: number;
 }
 
+function svgContentAsImage(
+  content: string,
+  width: number,
+  height: number,
+  padding: number,
+): string {
+  const outerWidth = width + padding * 2;
+  const outerHeight = height + padding * 2;
+  const document = `<svg xmlns="http://www.w3.org/2000/svg" width="${outerWidth}" height="${outerHeight}" viewBox="${-padding} ${-padding} ${outerWidth} ${outerHeight}">${content}</svg>`;
+  const href = `data:image/svg+xml,${encodeURIComponent(document)}`;
+  return `<image x="${-padding}" y="${-padding}" width="${outerWidth}" height="${outerHeight}" href="${esc(href)}"/>`;
+}
+
 /** One self-contained SVG mask definition, including nested sources and clipping dependencies. */
 export function layerMaskSvg(
   targetId: string,
@@ -47,6 +68,18 @@ export function layerMaskSvg(
       mask = target.mask;
     const source = layers.get(mask.sourceLayerId),
       state = states.get(mask.sourceLayerId);
+    const boxShadow = state ? effectStackBoxShadowCss(state.effects) : 'none';
+    const boxStagePresent =
+      !!state && getEffectStack(state.effects).some((effect) => effect.type === 'box-shadow');
+    const maskPadding =
+      mask.mode === 'alpha' && state && boxShadow !== 'none'
+        ? effectStackPadding(state.effects)
+        : 0;
+    const relative = state
+      ? relativeTransformMatrix(state.transform, targetState.transform)
+      : ([1, 0, 0, 1, 0, 0] as const);
+    const maskPaddingX = Math.ceil(maskPadding * (Math.abs(relative[0]) + Math.abs(relative[2])));
+    const maskPaddingY = Math.ceil(maskPadding * (Math.abs(relative[1]) + Math.abs(relative[3])));
     let content = '',
       defs = '';
     if (source?.isVisible && state && !active.has(source.id)) {
@@ -68,8 +101,31 @@ export function layerMaskSvg(
       if (mask.mode === 'alpha') {
         const fx = state.effects;
         const filters = effectStackToSvg(fx);
+        const pad = effectStackPadding(fx);
+        if (boxStagePresent && (resolved.type === 'rectangle' || resolved.type === 'ellipse')) {
+          const radius =
+            resolved.type === 'ellipse' ? '50%' : cornerRadiiToCss(resolved.borderRadius);
+          const border =
+            resolved.strokeWidth > 0
+              ? `border:${resolved.strokeWidth}px solid ${resolved.strokeColor};`
+              : '';
+          content = effectStackBoxShadowSvg(
+            fx,
+            state.transform.width,
+            state.transform.height,
+            radius,
+            pad,
+            paintToCss(resolved.fill),
+            border,
+            true,
+          );
+        } else if (boxStagePresent) {
+          const radius = resolved.type === 'ellipse' ? '50%' : '0px';
+          content = `${effectStackBoxShadowSvg(fx, state.transform.width, state.transform.height, radius, pad, 'transparent', '', true)}${content}`;
+        }
+        if (boxStagePresent)
+          content = svgContentAsImage(content, state.transform.width, state.transform.height, pad);
         if (filters) {
-          const pad = effectStackPadding(fx);
           defs += `<filter id="${maskId}-fx" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse" x="${-pad}" y="${-pad}" width="${state.transform.width + 2 * pad}" height="${state.transform.height + 2 * pad}">${filters}</filter>`;
           content = `<g filter="url(#${maskId}-fx)">${content}</g>`;
         }
@@ -102,9 +158,9 @@ export function layerMaskSvg(
     active.delete(layerId);
     if (mask.inverted) {
       defs += `<filter id="${maskId}-black" color-interpolation-filters="sRGB"><feColorMatrix type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0"/></filter>`;
-      content = `<rect width="${width}" height="${height}" fill="white"/><g filter="url(#${maskId}-black)">${content}</g>`;
+      content = `<rect x="${-maskPaddingX}" y="${-maskPaddingY}" width="${width + 2 * maskPaddingX}" height="${height + 2 * maskPaddingY}" fill="white"/><g filter="url(#${maskId}-black)">${content}</g>`;
     }
-    return `${defs}<mask id="${maskId}" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse" x="0" y="0" width="${width}" height="${height}" style="mask-type:${mask.inverted ? 'luminance' : 'alpha'}">${content}</mask>`;
+    return `${defs}<mask id="${maskId}" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse" x="${-maskPaddingX}" y="${-maskPaddingY}" width="${width + 2 * maskPaddingX}" height="${height + 2 * maskPaddingY}" style="mask-type:${mask.inverted ? 'luminance' : 'alpha'}">${content}</mask>`;
   };
   return definition(targetId, id);
 }
