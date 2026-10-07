@@ -6,6 +6,8 @@ import {
   createLayerOfKind,
   createLayerPropertyKeyframe,
   createProject,
+  addEffect,
+  updateEffect,
 } from '@ograf-editor/scene-model';
 import { renderCompositionFrameSvg } from './renderFrame';
 
@@ -35,6 +37,115 @@ describe('renderCompositionFrameSvg', () => {
     expect(result.svg).toContain('Agent preview');
     expect(result.svg).toContain('translate(120 240)');
     expect(result.svg).toContain('width="1920"');
+  });
+
+  it('renders box-shadow with the runtime CSS rectangle paint stage, not an SVG blur approximation', () => {
+    const project = createProject();
+    const composition = project.compositions[0]!;
+    const layer = createLayerOfKind('rectangle');
+    if (layer.element.type !== 'rectangle') throw new Error('Expected a rectangle layer.');
+    layer.element.fill = '#17324d';
+    layer.element.borderRadius = createCornerRadii(20);
+    layer.keyframes = [
+      createLayerKeyframe(0, {
+        x: 96,
+        y: 820,
+        width: 1050,
+        height: 156,
+        rotation: 0,
+        opacity: 1,
+        transformOriginX: 0.5,
+        transformOriginY: 0.5,
+      }),
+    ];
+    layer.effects.stack = [];
+    addEffect(layer, 'box-shadow', {
+      enabled: true,
+      params: { offsetX: 0, offsetY: 5, blur: 18, spread: 0, color: '#000000', opacity: 0.14 },
+    });
+    composition.layers.push(layer);
+
+    const { svg } = renderCompositionFrameSvg(project, composition.id, 0);
+
+    expect(svg).toContain('width:1050px;height:156px;');
+    expect(svg).toContain('x="-42" y="-42" width="1134" height="240"');
+    expect(svg).toContain('border-radius:20px 20px 20px 20px;');
+    expect(svg).toContain('box-shadow:0px 5px 18px 0px rgba(0, 0, 0, 0.14);');
+    expect(svg).not.toContain('<feDropShadow');
+  });
+
+  it('keeps the CSS rectangle paint geometry when the box-shadow stage is bypassed', () => {
+    const project = createProject();
+    const composition = project.compositions[0]!;
+    const layer = createLayerOfKind('rectangle');
+    if (layer.element.type !== 'rectangle') throw new Error('Expected a rectangle layer.');
+    layer.element.borderRadius = createCornerRadii(20);
+    layer.keyframes = [
+      createLayerKeyframe(0, {
+        x: 10,
+        y: 10,
+        width: 100,
+        height: 50,
+        rotation: 0,
+        opacity: 1,
+        transformOriginX: 0.5,
+        transformOriginY: 0.5,
+      }),
+    ];
+    layer.effects.stack = [];
+    const shadow = addEffect(layer, 'box-shadow', { enabled: true });
+    updateEffect(layer, shadow.id, { enabled: false });
+    composition.layers.push(layer);
+    const { svg } = renderCompositionFrameSvg(project, composition.id, 0);
+    expect(svg).toContain('border-radius:20px 20px 20px 20px;');
+    expect(svg).toContain('box-shadow:none;');
+  });
+
+  it('projects CSS box-shadow alpha-mask content through a nested SVG image boundary', () => {
+    const project = createProject();
+    const composition = project.compositions[0]!;
+    const source = createLayerOfKind('rectangle');
+    const target = createLayerOfKind('rectangle');
+    if (source.element.type !== 'rectangle') throw new Error('Expected rectangle source.');
+    source.element.fill = '#111111';
+    source.element.borderRadius = createCornerRadii(20);
+    source.keyframes = [
+      createLayerKeyframe(0, {
+        x: 100,
+        y: 100,
+        width: 100,
+        height: 50,
+        rotation: 0,
+        opacity: 1,
+        transformOriginX: 0.5,
+        transformOriginY: 0.5,
+      }),
+    ];
+    source.effects.stack = [];
+    addEffect(source, 'box-shadow', {
+      enabled: true,
+      params: { offsetX: 0, offsetY: 5, blur: 18, spread: 0, color: '#000000', opacity: 0.14 },
+    });
+    target.mask = { sourceLayerId: source.id, mode: 'alpha', inverted: false };
+    target.keyframes = [
+      createLayerKeyframe(0, {
+        x: 100,
+        y: 100,
+        width: 100,
+        height: 50,
+        rotation: 0,
+        opacity: 1,
+        transformOriginX: 0.5,
+        transformOriginY: 0.5,
+      }),
+    ];
+    composition.layers.push(source, target);
+
+    const { svg } = renderCompositionFrameSvg(project, composition.id, 0);
+    expect(svg).toContain('<image x="-42" y="-42" width="184" height="134"');
+    expect(svg).toContain('href="data:image/svg+xml,%3Csvg');
+    const href = /href="data:image\/svg\+xml,([^\"]+)"/.exec(svg)?.[1];
+    expect(href && decodeURIComponent(href)).toContain('<foreignObject');
   });
 
   it('renders sampled text stroke behind the SVG glyph fill', () => {

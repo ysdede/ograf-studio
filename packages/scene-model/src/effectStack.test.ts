@@ -13,7 +13,8 @@ import {
   effectStackErrors,
 } from './effectStack';
 import { layerEffectsToCssFilter } from './layerEffects';
-import { effectStackToSvg } from './effectRendering';
+import { effectStackBoxShadowCss, effectStackToSvg } from './effectRendering';
+import { createShaderPaint } from './shader';
 import type { EffectParameterProperty } from './types';
 
 describe('composable effects', () => {
@@ -34,6 +35,48 @@ describe('composable effects', () => {
     reorderEffects(l, ['base-shadow', 'base-blur']);
     expect(layerEffectsToCssFilter(l.effects)).toBe(
       'drop-shadow(3px 4px 9px rgba(18, 52, 86, 0.5)) blur(2px)',
+    );
+  });
+  it('exposes a CSS box-shadow as its own paint-stage declaration', () => {
+    const l = createLayerOfKind('rectangle');
+    l.effects.stack = [];
+    const shadow = addEffect(l, 'box-shadow', {
+      enabled: true,
+      params: { offsetX: 0, offsetY: 5, blur: 18, spread: 0, color: '#000000', opacity: 0.14 },
+    });
+    expect(shadow.type).toBe('box-shadow');
+    expect(effectStackBoxShadowCss(l.effects)).toBe('0px 5px 18px 0px rgba(0, 0, 0, 0.14)');
+    expect(layerEffectsToCssFilter(l.effects)).toBe('none');
+    expect(effectStackErrors(l.effects)).toEqual([]);
+  });
+  it('rejects box-shadow stages that cannot preserve declared stack order or shader semantics', () => {
+    const l = createLayerOfKind('rectangle');
+    l.effects.stack = [
+      { id: 'blur', name: 'Blur', type: 'blur', enabled: true, params: { radius: 2 } },
+      {
+        id: 'shadow',
+        name: 'Box shadow',
+        type: 'box-shadow',
+        enabled: true,
+        params: { offsetX: 0, offsetY: 5, blur: 18, spread: 0, color: '#000000', opacity: 0.14 },
+      },
+    ];
+    expect(effectStackErrors(l.effects)).toContain(
+      'CSS box-shadow must be the first entry in the ordered stack.',
+    );
+    l.effects.stack = [
+      l.effects.stack[1]!,
+      {
+        id: 'shader',
+        name: 'Shader',
+        type: 'shader',
+        enabled: true,
+        params: {},
+        shader: createShaderPaint(),
+      },
+    ];
+    expect(effectStackErrors(l.effects)).toContain(
+      'CSS box-shadow cannot be combined with a shader effect.',
     );
   });
   it('preserves stable parameter paths and keys through reorder and bypass', () => {

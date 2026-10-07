@@ -92,6 +92,17 @@ const EFFECT_HELP: Record<EffectType, Record<string, string>> = {
     radius:
       'Blur radius for lower layers inside this composition. Rectangles and ellipses clip the result to their shape; None or a translucent fill reveals the frosted background.',
   },
+  'box-shadow': {
+    offsetX:
+      'Horizontal shadow offset in pixels. Positive values move the shadow right; negative values move it left.',
+    offsetY:
+      'Vertical shadow offset in pixels. Positive values move the shadow down; negative values move it up.',
+    blur: 'Shadow blur in pixels, as in CSS box-shadow. Zero gives a hard edge.',
+    spread:
+      'Grows (positive) or shrinks (negative) the shadow box before it is blurred, following the layer corners.',
+    color: 'Shadow color.',
+    opacity: 'Shadow opacity, multiplied with the color alpha.',
+  },
   'drop-shadow': {
     offsetX:
       'Horizontal shadow offset in pixels. Positive values move the shadow right; negative values move it left.',

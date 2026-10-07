@@ -17,6 +17,7 @@ import {
   pruneInvalidGradientStopTracks,
 } from './layerAnimation';
 import { layerMaskSvg } from './svgMask';
+import { addEffect } from './effectStack';
 import { svgMaskSourceContent } from './svgPaint';
 import type { GradientPaint } from './types';
 
@@ -91,6 +92,31 @@ describe('layer masks', () => {
     expect(a.layers[0]!.mask!.sourceLayerId).not.toBe(b.layers[0]!.mask!.sourceLayerId);
     expect(a.layers[1]!.isMaskOnly).toBe(true);
   });
+  it('keeps CSS box-shadow alpha-mask content behind a nested SVG image boundary', () => {
+    const { composition, source, target } = scene();
+    source.element = createLayerOfKind('rectangle').element;
+    source.effects.stack = [];
+    addEffect(source, 'box-shadow', { enabled: true });
+    expect(layerMaskErrors(composition)).toEqual([]);
+    const layers = new Map(composition.layers.map((layer) => [layer.id, layer]));
+    const states = new Map(
+      composition.layers.map((layer) => [
+        layer.id,
+        {
+          transform: layer.keyframes[0]!.transform,
+          effects: layer.effects,
+          paintTracks: {},
+          paintFrame: 0,
+        },
+      ]),
+    );
+    const svg = layerMaskSvg(target.id, layers, states, 'image-shadow-mask');
+    expect(svg).toContain('<image x="-42" y="-42" width="184" height="184"');
+    const encoded = /href="data:image\/svg\+xml,([^\"]+)"/.exec(svg)?.[1];
+    expect(encoded).toBeDefined();
+    expect(decodeURIComponent(encoded!)).toContain('<foreignObject');
+    expect(decodeURIComponent(encoded!)).toContain('box-shadow');
+  });
   it('expresses a rotating source in the independent target coordinate system', () => {
     const source = createDefaultTransform({
       x: 100,
@@ -111,6 +137,48 @@ describe('layer masks', () => {
     expect(relativeTransformMatrix(source, source).map((n) => Math.round(n))).toEqual([
       1, 0, 0, 1, 0, 0,
     ]);
+  });
+  it('expands shadow mask extents after source-to-target rotation and inverse masks cover the padded box', () => {
+    const { composition, target, source } = scene();
+    source.element = createLayerOfKind('rectangle').element;
+    source.effects.stack = [];
+    addEffect(source, 'box-shadow', {
+      enabled: true,
+      params: { offsetX: 0, offsetY: 5, blur: 18, spread: 0, color: '#000000', opacity: 0.14 },
+    });
+    source.keyframes = [
+      createLayerKeyframe(
+        0,
+        createDefaultTransform({
+          x: 0,
+          y: 0,
+          width: 100,
+          height: 100,
+          rotation: 90,
+          transformOriginX: 0,
+          transformOriginY: 0,
+        }),
+      ),
+    ];
+    target.keyframes = [
+      createLayerKeyframe(0, createDefaultTransform({ x: 0, y: 0, width: 200, height: 100 })),
+    ];
+    const layers = new Map(composition.layers.map((l) => [l.id, l]));
+    const states = new Map(
+      composition.layers.map((l) => [
+        l.id,
+        {
+          transform: l.keyframes[0]!.transform,
+          effects: l.effects,
+          paintTracks: {},
+          paintFrame: 0,
+        },
+      ]),
+    );
+    target.mask!.inverted = true;
+    const svg = layerMaskSvg(target.id, layers, states, 'rotated-mask');
+    expect(svg).toContain('x="-42" y="-42" width="284" height="184"');
+    expect(svg).toContain('<rect x="-42" y="-42" width="284" height="184" fill="white"/>');
   });
   it('uses alpha independently of source colour, and ignores opacity/effects in path mode', () => {
     const { composition, target, source } = scene();

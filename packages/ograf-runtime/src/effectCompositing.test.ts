@@ -12,6 +12,21 @@ function hostFixture() {
     parentNode: Node | null = null;
     id = '';
     innerHTML = '';
+    get firstElementChild(): Node | null {
+      return this.children[0] ?? null;
+    }
+    getAttribute(name: string) {
+      return this.attributes.get(name) ?? null;
+    }
+    querySelector<T extends Element = Element>(selector: string): T | null {
+      if (selector !== '[data-ograf-rendered-element]') return null;
+      for (const child of this.children) {
+        if (child.dataset.ografRenderedElement !== undefined) return child as unknown as T;
+        const nested = child.querySelector(selector);
+        if (nested) return nested as unknown as T;
+      }
+      return null;
+    }
     clientWidth = 100;
     clientHeight = 60;
     ownerDocument = {
@@ -40,11 +55,51 @@ function hostFixture() {
   return {
     host,
     allocated: () => allocated,
+    createNode: () => new Node(),
+    addContent: () => {
+      const content = new Node();
+      host.appendChild(content);
+      return content;
+    },
     apply: (effects: ReturnType<typeof createLayerOfKind>['effects']) =>
       applyLayerEffectsFilter(host as unknown as HTMLElement, effects),
   };
 }
 describe('effect filter lifecycle', () => {
+  it('applies CSS box-shadow on the layer host without translating it to a filter', () => {
+    const fixture = hostFixture(),
+      layer = createLayerOfKind('rectangle');
+    const content = fixture.addContent();
+    layer.effects.stack = [];
+    addEffect(layer, 'box-shadow', {
+      enabled: true,
+      params: { offsetX: 0, offsetY: 5, blur: 18, spread: 0, color: '#000000', opacity: 0.14 },
+    });
+    fixture.apply(layer.effects);
+    expect(content.style.boxShadow).toBe('0px 5px 18px 0px rgba(0, 0, 0, 0.14)');
+    expect(fixture.host.style.boxShadow).toBe('none');
+    expect(fixture.host.style.filter).toBe('none');
+    expect(fixture.allocated()).toBe(0);
+    updateEffect(layer, layer.effects.stack![0]!.id, { enabled: false });
+    fixture.apply(layer.effects);
+    expect(content.style.boxShadow).toBe('none');
+  });
+  it('targets the actual rendered paint node through the editor content-host wrapper', () => {
+    const fixture = hostFixture(),
+      layer = createLayerOfKind('rectangle');
+    layer.effects.stack = [];
+    addEffect(layer, 'box-shadow', { enabled: true });
+    const wrapper = fixture.addContent(),
+      root = fixture.createNode();
+    // Model .layer-content-host > [data-ograf-rendered-element] > painted child.
+    root.dataset.ografRenderedElement = 'rectangle';
+    wrapper.appendChild(root);
+    const paint = fixture.createNode();
+    root.appendChild(paint);
+    fixture.apply(layer.effects);
+    expect(paint.style.boxShadow).toContain('rgba(0, 0, 0, 0.14)');
+    expect(fixture.host.style.boxShadow).toBe('none');
+  });
   it('allocates nothing for bypass, reuses a graph, sizes its bounds, then removes it', () => {
     const fixture = hostFixture(),
       layer = createLayerOfKind('rectangle');

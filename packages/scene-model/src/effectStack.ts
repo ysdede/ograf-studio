@@ -45,6 +45,17 @@ export const EFFECT_CATALOG: Record<
       opacity: { label: 'Opacity', default: 0.65, min: 0, max: 1, step: 0.01 },
     },
   },
+  'box-shadow': {
+    label: 'Box shadow',
+    params: {
+      offsetX: { label: 'Offset X', default: 0, min: -2048, max: 2048 },
+      offsetY: { label: 'Offset Y', default: 5, min: -2048, max: 2048 },
+      blur: { label: 'Blur', default: 18, min: 0, max: 256, step: 0.5 },
+      spread: { label: 'Spread', default: 0, min: -256, max: 256, step: 0.5 },
+      color: { label: 'Color', default: '#000000' },
+      opacity: { label: 'Opacity', default: 0.14, min: 0, max: 1, step: 0.01 },
+    },
+  },
   glow: {
     label: 'Glow',
     params: {
@@ -311,6 +322,20 @@ export function effectStackErrors(effects: LayerEffects): string[] {
         errors.push(`${effect.name}.${key} must use #RRGGBB or #RRGGBBAA.`);
     }
   }
+  const enabledBoxShadows = effects.stack.filter(
+    (effect) => effect?.type === 'box-shadow' && effectEnabled(effect, effects),
+  );
+  if (enabledBoxShadows.length > 1)
+    errors.push('A layer supports one enabled CSS box-shadow paint stage.');
+  const boxShadow = enabledBoxShadows[0];
+  if (boxShadow) {
+    const boxIndex = effects.stack.indexOf(boxShadow);
+    if (boxIndex !== 0) errors.push('CSS box-shadow must be the first entry in the ordered stack.');
+    if ((boxShadow.blendMode ?? 'normal') !== 'normal')
+      errors.push('CSS box-shadow does not support a non-normal effect blend mode.');
+    if (effects.stack.some((effect) => effect?.type === 'shader' && effectEnabled(effect, effects)))
+      errors.push('CSS box-shadow cannot be combined with a shader effect.');
+  }
   if (activeBackdrop && activeShader)
     errors.push('Backdrop blur and shader effects cannot be enabled together on the same layer.');
   return errors;
@@ -457,7 +482,9 @@ export function reorderEffects(layer: Layer, ids: string[]): void {
     ids.some((id) => !stack.some((e) => e.id === id))
   )
     throw Error('Reorder must include every effect ID exactly once.');
-  layer.effects.stack = ids.map((id) => stack.find((e) => e.id === id)!);
+  const reordered = ids.map((id) => stack.find((e) => e.id === id)!);
+  assertStack({ ...layer.effects, stack: reordered });
+  layer.effects.stack = reordered;
 }
 export function duplicateEffect(layer: Layer, id: string, newId = createId('fx')): LayerEffect {
   const source = getEffectStack(layer.effects).find((e) => e.id === id);

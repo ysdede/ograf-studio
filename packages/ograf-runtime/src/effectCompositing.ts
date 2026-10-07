@@ -5,6 +5,7 @@ import {
   effectEnabled,
   getEffectStack,
   layerEffectsToCssFilter,
+  effectStackBoxShadowCss,
   type LayerEffects,
 } from '@ograf-editor/scene-model';
 import {
@@ -20,6 +21,7 @@ const mounted = new WeakMap<
   HTMLElement,
   { svg: SVGSVGElement; filter: SVGFilterElement; signature: string }
 >();
+const boxShadowTargets = new WeakMap<HTMLElement, HTMLElement | SVGElement>();
 let nextFilter = 0;
 
 /** Definitions live with their layer, including inside the exported graphic's shadow root. */
@@ -29,6 +31,24 @@ export function applyLayerEffectsFilter(
   elapsedMs = 0,
 ): void {
   applyLayerBackdropFilter(host, effects);
+  const boxShadow = effectStackBoxShadowCss(effects);
+  const contentRoot =
+    host.dataset?.ografRenderedElement !== undefined
+      ? host
+      : (host.querySelector?.<HTMLElement>('[data-ograf-rendered-element]') ?? host);
+  const target = Array.from(contentRoot.children ?? []).find(
+    (child) => child.getAttribute?.('data-ograf-runtime-auxiliary') !== 'true',
+  ) as HTMLElement | SVGElement | undefined;
+  const previousTarget = boxShadowTargets.get(host);
+  if (previousTarget && previousTarget !== target) previousTarget.style.boxShadow = '';
+  host.style.boxShadow = 'none';
+  if (target) {
+    target.style.boxShadow = boxShadow;
+    boxShadowTargets.set(host, target);
+  } else {
+    host.style.boxShadow = boxShadow;
+    boxShadowTargets.delete(host);
+  }
   let entry = mounted.get(host);
   if (
     getEffectStack(effects).some(
@@ -92,6 +112,10 @@ export {
 export function disposeLayerEffects(host: HTMLElement): void {
   disposeLayerBackdropFilter(host);
   removeShaderEffectStack(host);
+  const target = boxShadowTargets.get(host);
+  if (target) target.style.boxShadow = '';
+  boxShadowTargets.delete(host);
+  host.style.boxShadow = '';
   const entry = mounted.get(host);
   entry?.svg.remove();
   mounted.delete(host);

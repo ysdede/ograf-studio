@@ -2,6 +2,8 @@ import { getElementFill, hasElementShaderPaint, svgPaint } from '@ograf-editor/s
 import {
   layerCropPolygon,
   effectStackToSvg,
+  effectStackBoxShadowSvg,
+  getEffectStack,
   effectStackPadding,
   parseEffectProperty,
   withEffectParameter,
@@ -346,12 +348,47 @@ function layerSvg(
   const content = reveal
     ? `<g clip-path="url(#${revealId})">${elementContent}</g>`
     : elementContent;
+  const boxShadowPadding = effectStackPadding(effects);
+  let shadowedContent = content;
+  const hasBoxShadowStage = getEffectStack(effects).some((effect) => effect.type === 'box-shadow');
+  if (hasBoxShadowStage && (element.type === 'rectangle' || element.type === 'ellipse')) {
+    const radius = element.type === 'ellipse' ? '50%' : cornerRadiiToCss(element.borderRadius);
+    const fill = paintToCss(element.fill);
+    const stroke =
+      element.strokeWidth > 0
+        ? `border:${element.strokeWidth}px solid ${escapeXml(element.strokeColor)};`
+        : '';
+    shadowedContent = effectStackBoxShadowSvg(
+      effects,
+      transform.width,
+      transform.height,
+      radius,
+      boxShadowPadding,
+      fill,
+      stroke,
+      true,
+    );
+  } else if (hasBoxShadowStage) {
+    const radius = element.type === 'ellipse' ? '50%' : '0px';
+    shadowedContent = `${effectStackBoxShadowSvg(
+      effects,
+      transform.width,
+      transform.height,
+      radius,
+      boxShadowPadding,
+      'transparent',
+      '',
+      true,
+    )}${content}`;
+  }
   const layerCropId = `layer-crop-${escapeXml(layer.id)}${escapeXml(options.idSuffix ?? '')}`;
   const cropPoints = layer.crop ? layerCropPolygon(layer.crop) : undefined;
   const cropClip = cropPoints
     ? `<clipPath id="${layerCropId}"><polygon points="${cropPoints.map((point) => `${point.x * transform.width},${point.y * transform.height}`).join(' ')}"/></clipPath>`
     : '';
-  const croppedContent = cropClip ? `<g clip-path="url(#${layerCropId})">${content}</g>` : content;
+  const croppedContent = cropClip
+    ? `<g clip-path="url(#${layerCropId})">${shadowedContent}</g>`
+    : shadowedContent;
   const maskId = 'mask-' + escapeXml(layer.id) + escapeXml(options.idSuffix ?? '');
   const mask = layer.mask
     ? layerMaskSvg(

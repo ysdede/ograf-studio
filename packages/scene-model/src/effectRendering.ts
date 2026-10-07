@@ -12,10 +12,12 @@ function colorWithOpacity(color: string, opacity: number): string {
 export function effectStackToCss(effects: LayerEffects): string {
   const filters: string[] = [];
   for (const effect of getEffectStack(effects)) {
+    // Box shadows are a CSS paint stage on the layer border box, not an image filter.
     if (
       !effectEnabled(effect, effects) ||
       effect.blendOpacity === 0 ||
-      effect.type === 'backdrop-blur'
+      effect.type === 'backdrop-blur' ||
+      effect.type === 'box-shadow'
     )
       continue;
     const p = effectParams(effect, effects);
@@ -43,6 +45,50 @@ export function effectStackToCss(effects: LayerEffects): string {
   return filters.join(' ') || 'none';
 }
 
+/** Native CSS paint declaration for the one supported ordered box-shadow stage. */
+export function effectStackBoxShadowCss(effects: LayerEffects): string {
+  const stack = getEffectStack(effects),
+    boxShadows = stack.filter(
+      (candidate) => candidate.type === 'box-shadow' && effectEnabled(candidate, effects),
+    ),
+    effect = boxShadows[0];
+  if (boxShadows.length > 1 || (effect && stack.indexOf(effect) !== 0))
+    throw new Error(
+      'CSS box-shadow must be the only enabled box-shadow and the first stack entry.',
+    );
+  if (!effect || effect.blendOpacity === 0) return 'none';
+  const p = effectParams(effect, effects),
+    opacity = Number(p.opacity) * (effect.blendOpacity ?? 1);
+  if (opacity <= 0) return 'none';
+  return `${p.offsetX}px ${p.offsetY}px ${p.blur}px ${p.spread}px ${colorWithOpacity(String(p.color), opacity)}`;
+}
+
+/**
+ * Browser-native CSS paint stage embedded in SVG. foreignObject is deliberate: SVG Gaussian
+ * blur does not reproduce the CSS box-shadow kernel, while Chromium renders this CSS declaration
+ * pixel-identically to the runtime host's border-box shadow.
+ */
+export function effectStackBoxShadowSvg(
+  effects: LayerEffects,
+  width: number,
+  height: number,
+  borderRadius: string,
+  padding: number,
+  background = 'transparent',
+  border = '',
+  forcePaint = false,
+): string {
+  const shadow = effectStackBoxShadowCss(effects);
+  if (shadow === 'none' && !forcePaint) return '';
+  const x = -padding,
+    y = -padding,
+    outerWidth = width + padding * 2,
+    outerHeight = height + padding * 2,
+    left = padding,
+    top = padding;
+  return `<foreignObject x="${x}" y="${y}" width="${outerWidth}" height="${outerHeight}"><div xmlns="http://www.w3.org/1999/xhtml" style="position:absolute;left:${left}px;top:${top}px;width:${width}px;height:${height}px;box-sizing:border-box;background:${escapeSvgAttribute(background)};border-radius:${escapeSvgAttribute(borderRadius)};${escapeSvgAttribute(border)}box-shadow:${escapeSvgAttribute(shadow)};"></div></foreignObject>`;
+}
+
 /** Only mixed effects need intermediate filter surfaces. Legacy/normal chains retain CSS. */
 export function effectStackNeedsCompositing(effects: LayerEffects): boolean {
   return getEffectStack(effects).some(
@@ -50,6 +96,7 @@ export function effectStackNeedsCompositing(effects: LayerEffects): boolean {
       effect.type !== 'backdrop-blur' &&
       effectEnabled(effect, effects) &&
       effect.blendOpacity !== 0 &&
+      effect.type !== 'box-shadow' &&
       ((effect.blendMode ?? 'normal') !== 'normal' || (effect.blendOpacity ?? 1) !== 1),
   );
 }
@@ -60,6 +107,12 @@ export function effectStackPadding(effects: LayerEffects): number {
       if (!effectEnabled(e, effects) || e.blendOpacity === 0 || e.type === 'backdrop-blur')
         return padding;
       const p = effectParams(e, effects);
+      if (e.type === 'box-shadow')
+        return (
+          padding +
+          Math.max(0, Number(p.blur) * 2 + Number(p.spread)) +
+          Math.max(Math.abs(Number(p.offsetX)), Math.abs(Number(p.offsetY)))
+        );
       return (
         padding +
         Number(p.radius ?? 0) * 3 +
@@ -74,10 +127,13 @@ export function effectStackToSvg(effects: LayerEffects): string {
   const nodes: string[] = [];
   let previous = 'SourceGraphic';
   for (const effect of getEffectStack(effects)) {
+    // The renderer inserts the native CSS stage with `effectStackBoxShadowSvg`, where the exact
+    // authored box geometry and corner radii are available.
     if (
       !effectEnabled(effect, effects) ||
       effect.blendOpacity === 0 ||
-      effect.type === 'backdrop-blur'
+      effect.type === 'backdrop-blur' ||
+      effect.type === 'box-shadow'
     )
       continue;
     const p = effectParams(effect, effects),
