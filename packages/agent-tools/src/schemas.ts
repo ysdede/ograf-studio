@@ -259,7 +259,7 @@ export const gradientPaintSchema = z
 export const propertySchema = z
   .string()
   .regex(
-    /^(x|y|width|height|rotation|opacity|scale|clip(Left|Right|Top|Bottom)|transformOrigin[XY]|motionPathProgress|strokeWidth|blur|dropShadow(Opacity|Offset[XY]|Blur)|fill\.stops\[(0|[1-9]\d*)\]\.offset|(fill|strokePaint)\.parameters\.[A-Za-z_]\w*(\.[xyrgba])?|effects\.[\w-]+\.(radius|offset[XY]|opacity|amount|angle)|modifiers\.[\w-]+\.[A-Za-z]\w*)$/,
+    /^(x|y|width|height|rotation|opacity|scale|clip(Left|Right|Top|Bottom)|transformOrigin[XY]|motionPathProgress|strokeWidth|blur|dropShadow(Opacity|Offset[XY]|Blur)|fill\.stops\[(0|[1-9]\d*)\]\.offset|(fill|strokePaint)\.parameters\.[A-Za-z_]\w*(\.[xyrgba])?|effects\.[\w-]+\.(radius|blur|spread|offset[XY]|opacity|amount|angle)|modifiers\.[\w-]+\.[A-Za-z]\w*)$/,
   )
   .transform((value) => value as AnimatableLayerProperty);
 
@@ -384,7 +384,7 @@ export const designTokenTypeSchema = z.enum([
 export const designTokenTargetPropertySchema = z
   .string()
   .regex(
-    /^(effects\.[a-zA-Z0-9_-]+\.(color|radius|offsetX|offsetY|opacity|amount|angle)|(fill|strokePaint)\.parameters\.[A-Za-z_][A-Za-z_0-9]*|fill|fill\.stops\[(0|[1-9]\d*)\]\.color|dropShadowColor|strokeColor|strokeWidth|borderRadius(TopLeft|TopRight|BottomRight|BottomLeft)?|color|fontFamily|fontSize|fontWeight)$/,
+    /^(effects\.[a-zA-Z0-9_-]+\.(color|radius|blur|spread|offsetX|offsetY|opacity|amount|angle)|(fill|strokePaint)\.parameters\.[A-Za-z_][A-Za-z_0-9]*|fill|fill\.stops\[(0|[1-9]\d*)\]\.color|dropShadowColor|strokeColor|strokeWidth|borderRadius(TopLeft|TopRight|BottomRight|BottomLeft)?|color|fontFamily|fontSize|fontWeight)$/,
   ) as z.ZodType<DesignTokenTargetProperty>;
 
 const paintSchema = z.union([z.string().min(1), gradientPaintSchema]);
