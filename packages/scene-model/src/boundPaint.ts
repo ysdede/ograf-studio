@@ -1,5 +1,9 @@
 import type { Element, Paint } from './types';
-import { inspectShaderSource, resolveShaderParameters, getElementShaderPaint } from './shader';
+import {
+  resolveShaderParameters,
+  getElementShaderPaint,
+  shaderParameterDefinition,
+} from './shader';
 import { isGradientPaint, validatePaint } from './paint';
 import {
   normalizeShaderParameterValue,
@@ -138,12 +142,13 @@ export function applyElementDataValue(element: Element, property: string, value:
     throw new Error(`Shader parameter binding "${property}" requires a shader paint.`);
   if (shader && shaderTarget) {
     const name = shaderTarget[2]!;
-    const definition = inspectShaderSource(shader.fragmentSource).parameters.find(
-      (parameter) => parameter.name === name,
-    );
+    const definition = shaderParameterDefinition(shader.fragmentSource, name);
     if (!definition) throw new Error(`Unknown shader parameter "${name}".`);
     let normalized = normalizeShaderParameterValue(definition, value);
-    const authored = resolveShaderParameters(shader)[name];
+    // Only colour controls need the authored value; resolving every parameter per binding made
+    // shaders with many bound parameters quadratic on each data update.
+    const authored =
+      definition.control === 'color' ? resolveShaderParameters(shader)[name] : undefined;
     // GDD hex defaults quantize to 8 bits; retain exact authored channels for that default.
     if (
       definition.control === 'color' &&
@@ -234,7 +239,17 @@ export function readElementDataValue(element: Element, property: string): unknow
       element,
       shaderTarget[1] === 'strokePaint' ? 'stroke' : 'fill',
     );
-    return shader ? resolveShaderParameters(shader)[shaderTarget[2]!] : undefined;
+    if (!shader) return undefined;
+    // Resolve just this parameter: bindings read one value each, and resolving the whole set per
+    // read is quadratic for shaders with many bound parameters.
+    const name = shaderTarget[2]!;
+    const definition = shaderParameterDefinition(shader.fragmentSource, name);
+    if (!definition) return undefined;
+    const values = shader.parameters ?? {};
+    return normalizeShaderParameterValue(
+      definition,
+      Object.prototype.hasOwnProperty.call(values, name) ? values[name] : definition.defaultValue,
+    );
   }
   const stop = /^fill\.stops\[(0|[1-9]\d*)\]\.color$/.exec(property);
   if (stop)

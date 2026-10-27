@@ -319,6 +319,19 @@ export function inspectShaderSource(source: unknown): ShaderInspection {
   return copyShaderInspection(inspection);
 }
 
+/**
+ * One parameter definition from the cached source contract, without copying the whole contract.
+ * Per-binding lookups use this so shaders with many bound parameters stay linear per update.
+ */
+export function shaderParameterDefinition(
+  source: unknown,
+  name: string,
+): Readonly<ShaderParameterDefinition> | undefined {
+  const cached = typeof source === 'string' ? sourceInspections.get(source) : undefined;
+  const parameters = cached ? cached.inspection.parameters : inspectShaderSource(source).parameters;
+  return parameters.find((parameter) => parameter.name === name);
+}
+
 export function resolveShaderParameters(
   element: ShaderElement,
 ): Record<string, ShaderParameterValue> {
