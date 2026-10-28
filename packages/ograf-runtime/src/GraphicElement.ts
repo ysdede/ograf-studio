@@ -136,6 +136,7 @@ import {
   type FiredRuntimeVisualRule,
 } from './runtimeVisualRules';
 import { MediaCueRuntime } from './mediaCueRuntime';
+import { NODOS_PAGE_GRAPHIC_TAG, subscribeNodosPins, type NodosPinValues } from './nodosPins';
 import { createLogicFunctionRuntime } from './logicFunctionRuntime';
 import { renderTextAnimationAtFrame, setTextAnimationPrevious } from './textAnimationRendering';
 import {
@@ -308,6 +309,16 @@ function shouldPlayAuthoredOut(
     Math.abs(frame - key.frame) < 0.000_001 &&
     (descriptor.exitTailStartFrame === undefined || descriptor.exitTailStartFrame <= key.frame)
   );
+}
+
+interface NodosPinBinding {
+  unsubscribe: () => void;
+  keys: Set<string>;
+  /** Fields a pin has set: the pin owns them, and host updates no longer change them. */
+  owned: Set<string>;
+  /** The latest values not yet applied; one update runs at a time and the latest values win. */
+  pending: NodosPinValues;
+  running: boolean;
 }
 
 export abstract class GraphicElement extends HTMLElement implements Graphic {
@@ -486,6 +497,8 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
   /** The data of that update until it has gone on air. */
   #unappliedUpdateData: Record<string, unknown> | null = null;
   #updateGeneration = 0;
+  /** The hosting ElectroNode's data pins, where the host page does not forward them; see nodosPins. */
+  #nodosPins: NodosPinBinding | null = null;
 
   private get descriptor(): CompiledGraphicDescriptor {
     return (this.constructor as typeof GraphicElement).descriptor;
@@ -2519,7 +2532,60 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
   }
 
   async load(params: LoadParams): Promise<ReturnPayload | undefined> {
-    return this.#serializeOperation(() => this.#loadUnlocked(params));
+    this.#disconnectNodosPins();
+    const result = await this.#serializeOperation(() => this.#loadUnlocked(params));
+    if (result?.statusCode === 200) this.#connectNodosPins();
+    return result;
+  }
+
+  #connectNodosPins(): void {
+    const view = this.ownerDocument?.defaultView;
+    if (!view || this.#renderType !== 'realtime' || this.localName === NODOS_PAGE_GRAPHIC_TAG) return;
+    const pins: NodosPinBinding = {
+      unsubscribe: () => {},
+      keys: new Set(Object.keys(this.descriptor.dataDefaults ?? {})),
+      owned: new Set<string>(),
+      pending: {},
+      running: false,
+    };
+    this.#nodosPins = pins;
+    const unsubscribe = subscribeNodosPins(view, (values) => this.#receiveNodosPins(pins, values));
+    if (unsubscribe && this.#nodosPins === pins) pins.unsubscribe = unsubscribe;
+    else {
+      unsubscribe?.();
+      if (this.#nodosPins === pins) this.#nodosPins = null;
+    }
+  }
+
+  #disconnectNodosPins(): void {
+    this.#nodosPins?.unsubscribe();
+    this.#nodosPins = null;
+  }
+
+  #receiveNodosPins(pins: NodosPinBinding, values: NodosPinValues): void {
+    let changed = false;
+    for (const [key, value] of Object.entries(values)) {
+      if (!pins.keys.has(key)) continue;
+      pins.pending[key] = value;
+      pins.owned.add(key);
+      changed = true;
+    }
+    if (changed) void this.#flushNodosPins(pins);
+  }
+
+  async #flushNodosPins(pins: NodosPinBinding): Promise<void> {
+    if (pins.running || this.#nodosPins !== pins || !Object.keys(pins.pending).length) return;
+    pins.running = true;
+    const data = pins.pending;
+    pins.pending = {};
+    try {
+      const result = await this.#runUpdate({ data, skipAnimation: true });
+      if (result && result.statusCode >= 400)
+        console.error('Nodos pin update failed:', result.statusMessage ?? result.statusCode);
+    } finally {
+      pins.running = false;
+    }
+    void this.#flushNodosPins(pins);
   }
 
   async #loadUnlocked(params: LoadParams): Promise<ReturnPayload | undefined> {
@@ -2595,6 +2661,7 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
   }
 
   async dispose(): Promise<ReturnPayload | undefined> {
+    this.#disconnectNodosPins();
     return this.#serializeOperation(() => this.#disposeUnlocked());
   }
 
@@ -2633,6 +2700,18 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
   }
 
   async updateAction(params: UpdateActionParams): Promise<ReturnPayload | undefined> {
+    const owned = this.#nodosPins?.owned;
+    if (owned?.size && params.data && typeof params.data === 'object' && !Array.isArray(params.data))
+      params = {
+        ...params,
+        data: Object.fromEntries(
+          Object.entries(params.data as Record<string, unknown>).filter(([key]) => !owned.has(key)),
+        ),
+      };
+    return this.#runUpdate(params);
+  }
+
+  async #runUpdate(params: UpdateActionParams): Promise<ReturnPayload | undefined> {
     if ((this.descriptor.updateInterruption ?? 'queue') === 'replace') {
       return this.#replaceRunningUpdate(params);
     }

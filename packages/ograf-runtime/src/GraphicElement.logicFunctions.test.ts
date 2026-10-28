@@ -206,6 +206,33 @@ beforeEach(() => {
   fixture.invoke.mockImplementation(async (ctx) => fixture.handler(ctx));
 });
 
+describe('GraphicElement Nodos pins', () => {
+  it('takes data pins from the hosting ElectroNode, which then own those fields', async () => {
+    let send: (values: unknown) => void = () => {};
+    const view = document.defaultView as unknown as Record<PropertyKey, unknown>;
+    view.nodos = { onData: (listener: typeof send) => (send = listener) };
+    try {
+      const instance = await graphic();
+      send({ label: 'from pin', URL: 'http://hub/renderer/' });
+      await flush();
+      expect(label(instance)).toBe('from pin');
+      await instance.updateAction({ data: { label: 'from host' }, skipAnimation: true });
+      expect(label(instance)).toBe('from pin');
+      send({ label: 'next' });
+      send({ label: 'latest' });
+      await flush();
+      expect(label(instance)).toBe('latest');
+      await instance.dispose();
+      send({ label: 'after dispose' });
+      await flush();
+      expect(label(instance)).toBe('latest');
+    } finally {
+      delete view.nodos;
+      delete view[Symbol.for('ograf.runtime.nodosPins')];
+    }
+  });
+});
+
 describe('GraphicElement function integration', () => {
   it('replays normalized pointer edges and keyboard rules once without relaying them again', async () => {
     const compiled = descriptor();
