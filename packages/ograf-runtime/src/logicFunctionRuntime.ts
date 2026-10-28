@@ -37,8 +37,10 @@ export interface LogicFunctionRuntimeOptions {
   onError(error: Error): void;
   sandboxFactory?: (
     owner: Document,
-    options: { source: string; name: string; timeoutMs?: number },
+    options: { source: string; name: string; timeoutMs?: number; reuseRealm?: boolean },
   ) => LogicFunctionSandboxHandle;
+  /** Realtime playback keeps each Function's Worker realm warm across calls (see the sandbox). */
+  reuseRealm?: boolean;
   clock?: {
     now(): number;
     setTimeout(callback: () => void, delayMs: number): unknown;
@@ -558,6 +560,7 @@ export function createLogicFunctionRuntime(options: LogicFunctionRuntimeOptions)
         source: entry.definition.source,
         name: entry.definition.name,
         timeoutMs: entry.definition.timeoutMs ?? DEFAULT_LOGIC_FUNCTION_TIMEOUT_MS,
+        reuseRealm: options.reuseRealm === true,
       });
       entry.sandbox = replacement;
       await replacement.ready;
@@ -844,6 +847,7 @@ export function createLogicFunctionRuntime(options: LogicFunctionRuntimeOptions)
           source: entry.definition.source,
           name: entry.definition.name,
           timeoutMs: entry.definition.timeoutMs ?? DEFAULT_LOGIC_FUNCTION_TIMEOUT_MS,
+          reuseRealm: options.reuseRealm === true,
         });
         await entry.sandbox.ready;
         if (disposed || initializationGeneration !== generation) return;

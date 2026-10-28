@@ -10,6 +10,13 @@ interface SandboxOptions {
   source: string;
   name: string;
   timeoutMs?: number;
+  /**
+   * Realtime playback: keep one Worker realm across invocations instead of a fresh realm per
+   * call, so the engine's compiled code stays warm. The Function source is still evaluated anew
+   * for every call (no closure state carries over); only the realm's globals persist. Any
+   * failure or timeout still terminates the Worker.
+   */
+  reuseRealm?: boolean;
 }
 export interface LogicFunctionSandbox {
   ready: Promise<void>;
@@ -25,7 +32,7 @@ export function isLogicFunctionExecutionTimeout(
 }
 
 /** This self-contained function is serialized into the Worker, never invoked in the page. */
-function workerKernel(config: { token: string; source: string; budget: number }) {
+function workerKernel(config: { token: string; source: string; budget: number; reuse?: boolean }) {
   'use strict';
   const scope = globalThis as unknown as {
     postMessage(value: unknown): void;
@@ -212,7 +219,7 @@ function workerKernel(config: { token: string; source: string; budget: number })
   const compileMs = now() - compileStart;
   let used = false;
   scope.onmessage = (event) => {
-    if (used) {
+    if (used && !config.reuse) {
       packet('error', { message: 'A worker can execute only one invocation.', elapsedMs: 0 });
       return;
     }
@@ -256,6 +263,7 @@ function supervisorKernel(config: {
   source: string;
   timeoutMs: number;
   kernel: string;
+  reuseRealm?: boolean;
 }) {
   'use strict';
   const channel = 'ograf-logic-function-v1';
@@ -286,7 +294,8 @@ function supervisorKernel(config: {
     task: Task | null;
     createdAt: number;
   }
-  // At most one active invocation and one unused prepared Worker. A Worker is never reused.
+  // At most one active invocation and one unused prepared Worker. A Worker is reused only with
+  // reuseRealm, after a successful invocation; failures still terminate it.
   let active: PreparedWorker | null = null;
   let idle: PreparedWorker | null = null;
   let scriptUrl: string | null = null;
@@ -370,7 +379,12 @@ function supervisorKernel(config: {
           '"use strict";(' +
           config.kernel +
           ')(' +
-          JSON.stringify({ token: config.token, source: config.source, budget: config.timeoutMs }) +
+          JSON.stringify({
+            token: config.token,
+            source: config.source,
+            budget: config.timeoutMs,
+            reuse: config.reuseRealm === true,
+          }) +
           ');';
         scriptUrl = URL.createObjectURL(new Blob([source], { type: 'text/javascript' }));
       }
@@ -465,7 +479,13 @@ function supervisorKernel(config: {
           fail(task.id, 'Invalid function worker result.');
           return;
         }
-        stop(state);
+        if (config.reuseRealm && !task.probe && idle === null) {
+          // Keep this warm realm as the next invocation's Worker.
+          clearTimer(state);
+          state.task = null;
+          active = null;
+          idle = state;
+        } else stop(state);
         const extra =
           packet.kind === 'result'
             ? { json: packet.json, elapsedMs: packet.elapsedMs }
@@ -581,7 +601,8 @@ function supervisorKernel(config: {
     };
     start(state);
     // Start the next fresh realm while the current one executes, then leave it untouched until use.
-    prepare();
+    // A reused realm returns to idle itself; a spare would only cost a Worker per call.
+    if (!config.reuseRealm) prepare();
   };
   scope.onmessage = (event) => {
     if (event.data?.channel !== channel) return;
@@ -607,6 +628,7 @@ function frameBootstrap(config: {
   timeoutMs: number;
   kernel: string;
   supervisor: string;
+  reuseRealm?: boolean;
 }) {
   'use strict';
   const channel = 'ograf-logic-function-v1';
@@ -658,6 +680,7 @@ function frameBootstrap(config: {
         source: config.source,
         timeoutMs: config.timeoutMs,
         kernel: config.kernel,
+        reuseRealm: config.reuseRealm === true,
       }) +
       ');';
     url = URL.createObjectURL(new Blob([source], { type: 'text/javascript' }));
@@ -819,6 +842,7 @@ export function createLogicFunctionSandbox(
     timeoutMs,
     kernel: workerKernel.toString(),
     supervisor: supervisorKernel.toString(),
+    reuseRealm: options.reuseRealm === true,
   })
     .replace(/</g, '\\u003c')
     .replace(/\u2028/g, '\\u2028')

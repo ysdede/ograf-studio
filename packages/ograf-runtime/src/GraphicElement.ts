@@ -2229,6 +2229,8 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
     this.#logicFunctions = createLogicFunctionRuntime({
       host: this,
       definitions,
+      // Realtime playback keeps Function realms warm; deterministic renders get a fresh one per call.
+      reuseRealm: this.#renderType === 'realtime',
       readData: () => this.#lastData,
       commitData: (patch, depth, context) => {
         if (this.#functionGeneration !== generation) return;
