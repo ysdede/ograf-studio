@@ -1202,3 +1202,97 @@ export function createLogicFunctionSandbox(
     dispose,
   };
 }
+
+/** Directive → source list of every Content-Security-Policy `<meta>` in the document. */
+function metaContentSecurityPolicies(ownerDocument: Document): Map<string, string[]>[] {
+  if (typeof ownerDocument?.querySelectorAll !== 'function') return [];
+  return Array.from(
+    ownerDocument.querySelectorAll<HTMLMetaElement>('meta[http-equiv="Content-Security-Policy" i]'),
+    (meta) =>
+      new Map(
+        meta.content
+          .split(';')
+          .map((directive) => directive.trim().split(/\s+/))
+          .filter((parts) => parts[0])
+          .map((parts) => [parts[0]!.toLowerCase(), parts.slice(1).map((s) => s.toLowerCase())]),
+      ),
+  );
+}
+
+/**
+ * Whether the page's Content Security Policy forbids what the isolated sandbox needs: an inline
+ * bootstrap script in a srcdoc frame (script-src 'unsafe-inline') and blob: Workers. Playout hosts
+ * such as Reality Hub's oGraf renderer set such a policy in a `<meta>` tag.
+ */
+export function isolationBlockedByPolicy(ownerDocument: Document): boolean {
+  return metaContentSecurityPolicies(ownerDocument).some((policy) => {
+    const sources = (...names: string[]) =>
+      names.map((name) => policy.get(name)).find((list) => list);
+    const scripts = sources('script-src', 'default-src');
+    const inlineBlocked =
+      !!scripts &&
+      (!scripts.includes("'unsafe-inline'") ||
+        scripts.some((s) => s.startsWith("'nonce-") || s.startsWith("'sha")));
+    const workers = sources('worker-src', 'child-src', 'script-src', 'default-src');
+    const workersBlocked = !!workers && !workers.includes('blob:') && !workers.includes('*');
+    return inlineBlocked || workersBlocked;
+  });
+}
+
+/**
+ * Runs a Function in the page itself, for pages whose policy forbids the isolated sandbox. It keeps
+ * the sandbox's contract: JSON-only context and result, the same size limits, a fresh evaluation
+ * of the source per call (no closure state carries over) and the execution budget, checked after
+ * the call since in-page code cannot be pre-empted. The package's own main.js already runs in the
+ * page, so the trust boundary is the same; only the isolation from the page is lost.
+ */
+export function createInlineLogicFunctionSandbox(
+  _ownerDocument: Document,
+  options: SandboxOptions,
+): LogicFunctionSandbox {
+  const name =
+    typeof options.name === 'string' && options.name.trim()
+      ? options.name.slice(0, 256)
+      : 'Function';
+  const timeoutMs = options.timeoutMs ?? 250;
+  const error = (message: string) => new Error(`${name}: ${message}`);
+  let failure: Error | null = null;
+  let factory: (() => unknown) | null = null;
+  try {
+    factory = new Function(`"use strict"; return (\n${options.source}\n);`) as () => unknown;
+  } catch (cause) {
+    failure = error(cause instanceof Error ? cause.message : 'Source could not be compiled.');
+  }
+  const ready = failure ? Promise.reject(failure) : Promise.resolve();
+  void ready.catch(() => undefined);
+  return {
+    ready,
+    async invoke(context) {
+      if (failure) throw failure;
+      try {
+        jsonBytes(context.state, STATE_BYTES);
+        jsonBytes(context.data, DATA_BYTES);
+        const input: unknown = JSON.parse(jsonBytes(context, RESULT_BYTES));
+        const started = performance.now();
+        const compiled = factory!();
+        if (typeof compiled !== 'function')
+          throw new Error('Source must evaluate to a synchronous function.');
+        const value: unknown = compiled(input);
+        if (performance.now() - started > timeoutMs)
+          throw new Error('Function execution exceeded its deadline.');
+        if (!value || typeof value !== 'object' || Array.isArray(value))
+          throw new Error('A function must return a result object.');
+        const result = JSON.parse(jsonBytes(value, RESULT_BYTES)) as LogicFunctionResult;
+        if (Object.hasOwn(result, 'state')) jsonBytes(result.state, STATE_BYTES);
+        if (Object.hasOwn(result, 'data')) jsonBytes(result.data, DATA_BYTES);
+        return result;
+      } catch (cause) {
+        failure = error(cause instanceof Error ? cause.message : 'Invocation failed.');
+        throw failure;
+      }
+    },
+    dispose() {
+      failure ??= error('Function runtime disposed.');
+    },
+  };
+}

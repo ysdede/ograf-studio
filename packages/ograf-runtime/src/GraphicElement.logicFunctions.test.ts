@@ -85,6 +85,7 @@ const fixture = vi.hoisted(() => {
   };
 });
 vi.mock('./logicFunctionSandbox', () => ({
+  isolationBlockedByPolicy: () => false,
   createLogicFunctionSandbox: () => ({
     ready: Promise.resolve(),
     invoke: fixture.invoke,
