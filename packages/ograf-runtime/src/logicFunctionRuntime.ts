@@ -10,7 +10,9 @@ import {
 import type { CompiledLogicFunctionDefinition } from '@ograf-editor/ograf-types';
 import type { MediaCueRuntime } from './mediaCueRuntime';
 import {
+  createInlineLogicFunctionSandbox,
   createLogicFunctionSandbox,
+  isolationBlockedByPolicy,
   isLogicFunctionExecutionTimeout,
 } from './logicFunctionSandbox';
 
@@ -132,7 +134,13 @@ export function createLogicFunctionRuntime(options: LogicFunctionRuntimeOptions)
       pendingOut: false,
       deferredData: null,
     }));
-  const factory = options.sandboxFactory ?? createLogicFunctionSandbox;
+  // Pages whose Content Security Policy forbids the isolated sandbox (Reality Hub's renderer) run
+  // Functions in the page instead of failing every graphic that has one.
+  const factory =
+    options.sandboxFactory ??
+    (isolationBlockedByPolicy(options.host.ownerDocument)
+      ? createInlineLogicFunctionSandbox
+      : createLogicFunctionSandbox);
   const hasPointerFunctions = entries.some((entry) => entry.definition.pointer === true);
   const cancelTimer = (entry: Entry) => {
     entry.cancelTimer?.();
