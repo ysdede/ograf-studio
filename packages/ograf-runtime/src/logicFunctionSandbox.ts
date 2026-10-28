@@ -766,6 +766,15 @@ function jsonBytes(value: unknown, limit: number): string {
   return text;
 }
 
+/**
+ * 128 random bits as hex. crypto.randomUUID exists only in secure contexts (HTTPS, localhost); a
+ * playout server that serves packages over plain HTTP still has crypto.getRandomValues.
+ */
+export function sandboxToken(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
 export function createLogicFunctionSandbox(
   ownerDocument: Document,
   options: SandboxOptions,
@@ -816,13 +825,7 @@ export function createLogicFunctionSandbox(
     throw error('Source must contain a function expression of at most 128 KiB.');
   if (!Number.isInteger(timeoutMs) || timeoutMs < 16 || timeoutMs > 1000)
     throw error('Execution timeout must be 16–1000 ms.');
-  // Plain LAN HTTP still has getRandomValues even when randomUUID is unavailable.
-  const token =
-    typeof crypto.randomUUID === 'function'
-      ? crypto.randomUUID()
-      : Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) =>
-          byte.toString(16).padStart(2, '0'),
-        ).join('');
+  const token = sandboxToken();
   let control: MessagePort | null = null;
   let cleanupControl: MessagePort | null = null;
   const iframe = ownerDocument.createElement('iframe');
