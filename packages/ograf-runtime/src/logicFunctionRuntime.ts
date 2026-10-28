@@ -940,6 +940,17 @@ export function createLogicFunctionRuntime(options: LogicFunctionRuntimeOptions)
       lifecycle = operation.catch(() => undefined);
       return operation;
     },
+    /**
+     * Resolves once the Function calls queued so far, including data events from a change made just
+     * before this call, have finished. Realtime updates await it so a fast data feed is paced by the
+     * Functions instead of piling calls up past the pending limit.
+     */
+    async settled(): Promise<void> {
+      await new Promise<void>((resolve) => queueMicrotask(resolve));
+      await ready.catch(() => undefined);
+      await Promise.resolve();
+      await queue.catch(() => undefined);
+    },
     dataChanged(previous: Record<string, unknown>, next: Record<string, unknown>): void {
       if (disposed) return;
       for (const entry of entries) {
