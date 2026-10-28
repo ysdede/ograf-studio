@@ -432,6 +432,8 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
   #lastData: Record<string, unknown> = {};
   /** While set, a data refresh touches only layers that can read these data keys (see #readsAny). */
   #refreshScope: ReadonlySet<string> | null = null;
+  #layerLocalDescriptor: CompiledGraphicDescriptor | null = null;
+  #layerLocal = false;
   /** Visual rule state: event overrides, hover, delays and transitions. */
   #rules: RuntimeVisualRules | null = null;
   #ruleTimers = new Set<ReturnType<typeof setTimeout>>();
@@ -1207,10 +1209,40 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
     return chartMarkLifecycleFrame(this.activeDescriptor, frame, direct);
   }
 
+  /**
+   * Whether every layer's visual state depends only on that layer: no auto layout, motion paths,
+   * modifiers, clip parents or masks, which read other layers' states.
+   */
+  #layerLocalVisualStates(): boolean {
+    const descriptor = this.activeDescriptor;
+    if (this.#layerLocalDescriptor !== descriptor) {
+      this.#layerLocalDescriptor = descriptor;
+      this.#layerLocal = !descriptor.layers.some(
+        (layer) =>
+          (layer.autoLayout && layer.autoLayout.direction !== 'none') ||
+          layer.motionPath ||
+          layer.modifiers?.length ||
+          layer.clipParentId ||
+          layer.mask,
+      );
+    }
+    return this.#layerLocal;
+  }
+
   #renderLoopSnapshot(clockMs: number, epochs = this.#activeLoopEpochs): void {
     const baseFrame = this.#timeline?.frame() ?? 0;
     const states = new Map<string, ReturnType<typeof sampleCompiledLayerVisualState>>();
+    // A plain data refresh re-samples only the layers that read the changed keys, when no layer's
+    // state depends on another's and no lifecycle transition or loop correction is in progress.
+    const scope =
+      this.#refreshScope &&
+      !this.#directLifecycleTransition &&
+      !this.#loopExitCorrection &&
+      this.#layerLocalVisualStates()
+        ? this.#refreshScope
+        : null;
     for (const layer of this.activeDescriptor.layers) {
+      if (scope && !this.#readsAny(layer, scope)) continue;
       const direct = this.#directLifecycleTransition;
       const directLayer = direct?.layers.get(layer.id);
       const directDistance = direct ? Math.abs(direct.targetFrame - direct.startFrame) : 0;
@@ -2139,9 +2171,10 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
           layer.collectionItem.slot,
         );
     }
+    const scope = this.#refreshScope;
     for (const layer of this.activeDescriptor.layers) {
       const el = this.#layerEls.get(layer.id);
-      if (!el) continue;
+      if (!el || !this.#readsAny(layer, scope)) continue;
       const active = isRuntimeCollectionLayerActive(layer, this.#lastData);
       el.style.display = this.#visualRuleVisible(layer) && active ? '' : 'none';
       const fade = visualRuleEffectFor(layer, this.#lastData)?.contentOpacity;
