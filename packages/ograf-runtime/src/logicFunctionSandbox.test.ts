@@ -5,6 +5,7 @@ import type { LogicFunctionContext } from '@ograf-editor/scene-model';
 import {
   createLogicFunctionSandbox,
   isLogicFunctionExecutionTimeout,
+  sandboxToken,
   utf8BytesOver,
 } from './logicFunctionSandbox';
 
@@ -1046,5 +1047,19 @@ describe('trusted supervisor worker ownership', () => {
     await vi.advanceTimersByTimeAsync(5000);
     expect(env.workers).toHaveLength(count);
     env.sandbox.dispose();
+  });
+});
+
+describe('sandbox token', () => {
+  it('needs only crypto.getRandomValues, so insecure (plain HTTP) pages can run Functions', () => {
+    const randomUUID = crypto.randomUUID;
+    Object.defineProperty(crypto, 'randomUUID', { value: undefined, configurable: true });
+    try {
+      const tokens = new Set(Array.from({ length: 50 }, () => sandboxToken()));
+      expect(tokens.size).toBe(50);
+      for (const token of tokens) expect(token).toMatch(/^[0-9a-f]{32}$/);
+    } finally {
+      Object.defineProperty(crypto, 'randomUUID', { value: randomUUID, configurable: true });
+    }
   });
 });
