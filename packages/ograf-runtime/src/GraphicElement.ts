@@ -430,6 +430,8 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
   /** Index into `descriptor.stepKeyframeIds` — the OGraf "current step", not a keyframe index. */
   #currentStep: number | undefined;
   #lastData: Record<string, unknown> = {};
+  /** While set, a data refresh touches only layers that can read these data keys (see #readsAny). */
+  #refreshScope: ReadonlySet<string> | null = null;
   /** Visual rule state: event overrides, hover, delays and transitions. */
   #rules: RuntimeVisualRules | null = null;
   #ruleTimers = new Set<ReturnType<typeof setTimeout>>();
@@ -1060,9 +1062,10 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
     );
   }
 
-  #captureTextAnimationElements(): Map<string, TextElement> {
+  #captureTextAnimationElements(keys: ReadonlySet<string> | null = null): Map<string, TextElement> {
     const previous = new Map<string, TextElement>();
     for (const layer of this.activeDescriptor.layers) {
+      if (layer.element.type !== 'text' || !this.#readsAny(layer, keys)) continue;
       const element = this.#resolveLayerElement(layer);
       if (element.type === 'text' && !element.clock) previous.set(layer.id, element);
     }
@@ -1886,10 +1889,10 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
     outgoing.remove();
   }
 
-  async #awaitContentReady(): Promise<void> {
+  async #awaitContentReady({ shaderPixels = true }: { shaderPixels?: boolean } = {}): Promise<void> {
     const root = this.shadowRoot;
     await this.#documentFontsReady;
-    if (root) await waitForElementContentReady(root);
+    if (root) await waitForElementContentReady(root, { shaderPixels });
     if (this.#contentPlaybackError) throw this.#contentPlaybackError;
   }
 
@@ -2035,9 +2038,31 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
     }
   }
 
+  /**
+   * Whether a layer's resolved element can change when these data keys change. Layers with visual
+   * rules, collection items or rule targets read data indirectly and always count; the rest read
+   * only their bindings' data keys. A data update then redraws just the layers it can affect.
+   */
+  #readsAny(layer: CompiledGraphicDescriptor['layers'][number], keys: ReadonlySet<string> | null): boolean {
+    if (!keys) return true;
+    if ((layer.visualRules?.length ?? 0) > 0 || layer.collectionItem || this.#rules?.targeted.has(layer.id)) return true;
+    return (layer.bindings ?? (layer.binding ? [layer.binding] : [])).some((binding) => keys.has(binding.dataKey));
+  }
+
+  /** Data keys whose values differ from the committed data (by identity). */
+  #changedDataKeys(data: unknown): Set<string> {
+    return new Set(
+      data && typeof data === 'object'
+        ? Object.entries(data as Record<string, unknown>).filter(([key, value]) => !Object.is(this.#lastData[key], value)).map(([key]) => key)
+        : [],
+    );
+  }
+
   #refreshBoundLayers(): void {
+    const scope = this.#refreshScope;
     for (const layer of this.activeDescriptor.layers) {
       if (!layerHasRuntimeVisualInputs(layer) && !this.#rules?.targeted.has(layer.id)) continue;
+      if (!this.#readsAny(layer, scope)) continue;
       const el = this.#layerEls.get(layer.id);
       if (el) {
         const element = this.#resolveLayerElement(layer);
@@ -2150,11 +2175,18 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
   #applyData(data: unknown, depth = 0): void {
     if (!data || typeof data !== 'object') return;
     const previousData = this.#lastData;
+    const changed = this.#changedDataKeys(data);
     const nextData = { ...this.#lastData, ...(data as Record<string, unknown>) };
     this.#validateShaderData(nextData);
     const fired = this.#rules?.dataChanged(previousData, nextData) ?? [];
     this.#lastData = nextData;
-    this.#runRules(fired, depth);
+    // Fired rules may run actions that redraw anything; only a plain data change is scoped.
+    this.#refreshScope = fired.length ? null : changed;
+    try {
+      this.#runRules(fired, depth);
+    } finally {
+      this.#refreshScope = null;
+    }
     this.#logicFunctions?.dataChanged(previousData, this.#lastData);
   }
 
@@ -2187,9 +2219,10 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
       commitData: (patch, depth, context) => {
         if (this.#functionGeneration !== generation) return;
         const merged = { ...this.#lastData, ...patch };
+        const patchKeys = this.#changedDataKeys(patch);
         // Validate bound shader values before changing the committed data or firing Rules.
-        this.#validateShaderData(merged);
-        const previousText = this.#captureTextAnimationElements();
+        this.#validateShaderData(merged, patchKeys);
+        const previousText = this.#captureTextAnimationElements(patchKeys);
         if (context.event.type === 'load' || !context.onAir) {
           const previousData = this.#lastData;
           // Establish baseline visuals without executing data-triggered action/media effects.
@@ -2335,8 +2368,9 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
     this.#refreshBoundLayers();
   }
 
-  #validateShaderData(data: Record<string, unknown>): void {
+  #validateShaderData(data: Record<string, unknown>, keys: ReadonlySet<string> | null = null): void {
     for (const layer of this.activeDescriptor.layers) {
+      if (!this.#readsAny(layer, keys)) continue;
       const element = resolveBoundElement(layer, data);
       for (const { paint } of getElementShaderPaints(element)) resolveShaderParameters(paint);
     }
@@ -2611,15 +2645,21 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
     params: UpdateActionParams,
     generation = this.#updateGeneration,
   ): Promise<ReturnPayload | undefined> {
+    // A realtime update returns once its content is mounted; shader frames keep drawing on animation
+    // frames, so waiting on a GPU fence here would only cap the update rate at the shader's frame time.
+    const updateReadiness = { shaderPixels: this.#renderType !== 'realtime' };
     try {
-      await this.#awaitContentReady();
+      await this.#awaitContentReady(updateReadiness);
       if (generation !== this.#updateGeneration) return { statusCode: 200 };
       params = { ...params, data: this.resolveExternalData(params.data, this.#lastData) };
       if (params.data && typeof params.data === 'object') {
-        this.#validateShaderData({
-          ...this.#lastData,
-          ...(params.data as Record<string, unknown>),
-        });
+        this.#validateShaderData(
+          {
+            ...this.#lastData,
+            ...(params.data as Record<string, unknown>),
+          },
+          this.#changedDataKeys(params.data),
+        );
       }
       this.#cancelUpdateAnimations();
       const changedKeys = changedDataKeys(params.data, this.#lastData);
@@ -2634,12 +2674,13 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
       });
       if (params.skipAnimation || !hasTransition || keys.size === 0) {
         this.#unappliedUpdateData = null;
-        const previousText = this.#captureTextAnimationElements();
+        const previousText = this.#captureTextAnimationElements(changedKeys);
         this.#applyData(params.data);
         if (!params.skipAnimation) this.#replayUpdatedText(changedKeys, previousText);
         else this.#settleUpdatedText(changedKeys);
         this.#startChartAnimations(Boolean(params.skipAnimation), changedKeys);
-        await this.#awaitContentReady();
+        await this.#logicFunctions?.settled();
+        await this.#awaitContentReady(updateReadiness);
         return { statusCode: 200 };
       }
       await this.#animateBoundContent(keys, 'out');
@@ -2651,11 +2692,11 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
       this.#startChartAnimations(false, changedKeys);
       // A re-render replaces the content node, so the fade-out's hold no longer hides the new value.
       await this.#animateBoundContent(keys, 'hold');
-      await this.#awaitContentReady();
+      await this.#awaitContentReady(updateReadiness);
       if (generation !== this.#updateGeneration) return { statusCode: 200 };
       await this.#animateBoundContent(keys, 'in');
       if (generation !== this.#updateGeneration) return { statusCode: 200 };
-      await this.#awaitContentReady();
+      await this.#awaitContentReady(updateReadiness);
       return { statusCode: 200 };
     } catch (err) {
       // Whoever replaced this update has already dealt with its data and its fades.

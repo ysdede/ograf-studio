@@ -374,7 +374,15 @@ function mountedLottiesWithin(root: ParentNode): MountedLottie[] {
 }
 
 /** Waits for embedded assets and surfaces shader compilation, context, and draw failures. */
-export async function waitForElementContentReady(root: ParentNode): Promise<void> {
+/**
+ * Waits until mounted content can be shown. `shaderPixels: false` skips waiting for the GPU to finish
+ * the latest shader frame: realtime updates keep drawing on animation frames and need not stall on a
+ * fence, while seeks and captures keep the default and get exact pixels.
+ */
+export async function waitForElementContentReady(
+  root: ParentNode,
+  { shaderPixels = true }: { shaderPixels?: boolean } = {},
+): Promise<void> {
   await waitForTickersReady(root);
   root = tickerReadinessScope(root);
   refreshCroppedImages(root);
@@ -387,7 +395,7 @@ export async function waitForElementContentReady(root: ParentNode): Promise<void
   await waitForMediaPaintContentReady(root);
   await waitForShadersReady(root);
   await waitForLayerEffectsReady(root);
-  await waitForShadersComplete(root);
+  if (shaderPixels) await waitForShadersComplete(root);
   refreshCroppedImages(root);
 }
 
