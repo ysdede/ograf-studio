@@ -202,6 +202,63 @@ export function applyElementDataValue(element: Element, property: string, value:
 }
 
 /** The value `applyElementDataValue` would replace; `undefined` when the element lacks it. */
+/**
+ * Applies several bound values in order, as repeated applyElementDataValue calls would. Consecutive
+ * shader parameter values share one copy of the paint's parameters, so a layer with many bound
+ * parameters costs linear rather than quadratic time per data update.
+ */
+export function applyElementDataValues(
+  element: Element,
+  entries: ReadonlyArray<readonly [property: string, value: unknown]>,
+): Element {
+  let pending: { slot: 'fill' | 'stroke'; parameters: Record<string, unknown> } | null = null;
+  const flush = (current: Element): Element => {
+    if (!pending) return current;
+    const shader = getElementShaderPaint(current, pending.slot)!;
+    const paint = { ...shader, parameters: pending.parameters } as typeof shader;
+    const slot = pending.slot;
+    pending = null;
+    if (slot === 'stroke' && current.type === 'text') return { ...current, strokePaint: paint };
+    if (current.type === 'shader') return paint as Element;
+    return { ...current, fill: paint } as Element;
+  };
+  let current = element;
+  for (const [property, value] of entries) {
+    const shaderTarget = /^(?:(fill|strokePaint)\.)?parameters\.(.+)$/.exec(property);
+    const slot = shaderTarget?.[1] === 'strokePaint' ? 'stroke' : 'fill';
+    const shader = shaderTarget ? getElementShaderPaint(current, slot) : null;
+    if (
+      !shaderTarget ||
+      !shader ||
+      (slot === 'stroke' && current.type !== 'text') ||
+      (current.type !== 'shader' && !(slot === 'stroke') && !('fill' in current))
+    ) {
+      current = applyElementDataValue(flush(current), property, value);
+      continue;
+    }
+    if (pending && pending.slot !== slot) current = flush(current);
+    const name = shaderTarget[2]!;
+    const definition = shaderParameterDefinition(shader.fragmentSource, name);
+    if (!definition) throw new Error(`Unknown shader parameter "${name}".`);
+    pending ??= { slot, parameters: { ...shader.parameters } };
+    let normalized: unknown = normalizeShaderParameterValue(definition, value);
+    if (definition.control === 'color') {
+      const authored = resolveShaderParameters({
+        ...shader,
+        parameters: pending.parameters,
+      } as typeof shader)[name];
+      if (
+        Array.isArray(authored) &&
+        typeof value === 'string' &&
+        shaderColorToHex(authored).toLowerCase() === value.toLowerCase()
+      )
+        normalized = authored;
+    }
+    pending.parameters[name] = normalized;
+  }
+  return flush(current);
+}
+
 export function readElementDataValue(element: Element, property: string): unknown {
   if (element.type === 'ticker') {
     if (property === 'items') return element.items;

@@ -1889,7 +1889,9 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
     outgoing.remove();
   }
 
-  async #awaitContentReady({ shaderPixels = true }: { shaderPixels?: boolean } = {}): Promise<void> {
+  async #awaitContentReady({
+    shaderPixels = true,
+  }: { shaderPixels?: boolean } = {}): Promise<void> {
     const root = this.shadowRoot;
     await this.#documentFontsReady;
     if (root) await waitForElementContentReady(root, { shaderPixels });
@@ -2043,17 +2045,29 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
    * rules, collection items or rule targets read data indirectly and always count; the rest read
    * only their bindings' data keys. A data update then redraws just the layers it can affect.
    */
-  #readsAny(layer: CompiledGraphicDescriptor['layers'][number], keys: ReadonlySet<string> | null): boolean {
+  #readsAny(
+    layer: CompiledGraphicDescriptor['layers'][number],
+    keys: ReadonlySet<string> | null,
+  ): boolean {
     if (!keys) return true;
-    if ((layer.visualRules?.length ?? 0) > 0 || layer.collectionItem || this.#rules?.targeted.has(layer.id)) return true;
-    return (layer.bindings ?? (layer.binding ? [layer.binding] : [])).some((binding) => keys.has(binding.dataKey));
+    if (
+      (layer.visualRules?.length ?? 0) > 0 ||
+      layer.collectionItem ||
+      this.#rules?.targeted.has(layer.id)
+    )
+      return true;
+    return (layer.bindings ?? (layer.binding ? [layer.binding] : [])).some((binding) =>
+      keys.has(binding.dataKey),
+    );
   }
 
   /** Data keys whose values differ from the committed data (by identity). */
   #changedDataKeys(data: unknown): Set<string> {
     return new Set(
       data && typeof data === 'object'
-        ? Object.entries(data as Record<string, unknown>).filter(([key, value]) => !Object.is(this.#lastData[key], value)).map(([key]) => key)
+        ? Object.entries(data as Record<string, unknown>)
+            .filter(([key, value]) => !Object.is(this.#lastData[key], value))
+            .map(([key]) => key)
         : [],
     );
   }
@@ -2368,7 +2382,10 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
     this.#refreshBoundLayers();
   }
 
-  #validateShaderData(data: Record<string, unknown>, keys: ReadonlySet<string> | null = null): void {
+  #validateShaderData(
+    data: Record<string, unknown>,
+    keys: ReadonlySet<string> | null = null,
+  ): void {
     for (const layer of this.activeDescriptor.layers) {
       if (!this.#readsAny(layer, keys)) continue;
       const element = resolveBoundElement(layer, data);
