@@ -642,6 +642,32 @@ describe('actual one-shot Worker kernel', () => {
     env.sandbox.dispose();
   });
 
+  it('with reuse runs every invocation and evaluates the source anew for each', () => {
+    const source =
+      '(() => { let calls = 0; globalThis.expressionRuns = (globalThis.expressionRuns || 0) + 1; return () => ({ state: { calls: ++calls, runs: globalThis.expressionRuns } }); })()';
+    const env = environment(source, 1000);
+    const packets: Array<Record<string, unknown>> = [];
+    const scope: Record<string, unknown> = {
+      TextEncoder,
+      performance: { now: () => 1 },
+      postMessage: (value: Record<string, unknown>) => packets.push(value),
+    };
+    runInNewContext(
+      `"use strict";(${env.config.kernel})(${JSON.stringify({ token: 'private', source, budget: 1000, reuse: true })});`,
+      scope,
+    );
+    const invoke = scope.onmessage as (event: unknown) => void;
+    invoke({ data: { id: 1, context: JSON.stringify(context) } });
+    invoke({ data: { id: 2, context: JSON.stringify(context) } });
+    const results = packets.filter((packet) => packet.kind === 'result');
+    expect(results.map((packet) => [packet.id, JSON.parse(String(packet.json)).state])).toEqual([
+      [1, { calls: 1, runs: 1 }],
+      // Closure state starts over each call; only the realm's globals persist.
+      [2, { calls: 1, runs: 2 }],
+    ]);
+    env.sandbox.dispose();
+  });
+
   it('does not let user code revoke the shared immutable script URL or retain Blob URLs', () => {
     class WorkerUrl {
       static createObjectURL = vi.fn();
