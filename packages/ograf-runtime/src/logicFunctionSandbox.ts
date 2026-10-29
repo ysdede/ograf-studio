@@ -190,7 +190,8 @@ function workerKernel(config: { token: string; source: string; budget: number; r
           // here instead of parsing the result and traversing state/data a second time.
           const fieldLimit =
             depth === 0 ? (key === 'state' ? 256 * 1024 : key === 'data' ? 64 * 1024 : null) : null;
-          if (fieldLimit !== null && encode(child).byteLength > fieldLimit)
+          // A UTF-16 unit is at most 3 UTF-8 bytes: short text needs no encoding.
+          if (fieldLimit !== null && child.length * 3 > fieldLimit && encode(child).byteLength > fieldLimit)
             throw new ErrorType('Function result exceeds the JSON size limit.');
           pieces[count++] = `${stringify(key)}:${child}`;
         }
@@ -199,7 +200,7 @@ function workerKernel(config: { token: string; source: string; budget: number; r
       return array ? `[${join(pieces, ',')}]` : `{${join(pieces, ',')}}`;
     };
     const text = encodeValue(value, 0);
-    if (encode(text).byteLength > byteLimit)
+    if (text.length * 3 > byteLimit && encode(text).byteLength > byteLimit)
       throw new ErrorType('Function result exceeds the JSON size limit.');
     return text;
   };
@@ -761,9 +762,19 @@ function jsonBytes(value: unknown, limit: number): string {
   };
   check(value, 0);
   const text = JSON.stringify(value);
-  if (new TextEncoder().encode(text).byteLength > limit)
-    throw new Error('JSON value exceeds its size limit.');
+  if (utf8BytesOver(text, limit)) throw new Error('JSON value exceeds its size limit.');
   return text;
+}
+
+/**
+ * Whether the UTF-8 encoding of `text` is longer than `limit` bytes. A UTF-16 code unit takes at most 3 bytes, so
+ * text shorter than a third of the limit needs no encoding; Functions call this several times per invocation on
+ * their state, at up to the feed rate.
+ */
+export function utf8BytesOver(text: string, limit: number): boolean {
+  if (text.length * 3 <= limit) return false;
+  if (text.length > limit) return true;
+  return new TextEncoder().encode(text).byteLength > limit;
 }
 
 /**
@@ -1081,7 +1092,7 @@ export function createLogicFunctionSandbox(
       if (!task.probe) {
         if (
           typeof packet.json !== 'string' ||
-          new TextEncoder().encode(packet.json).byteLength > RESULT_BYTES
+          utf8BytesOver(packet.json, RESULT_BYTES)
         )
           throw error('Result exceeds 512 KiB.');
         const value: unknown = JSON.parse(packet.json);
