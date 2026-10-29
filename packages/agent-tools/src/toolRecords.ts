@@ -232,7 +232,7 @@ const SHADER_PAINT_CAPABILITIES = {
   runtimeProfile: {
     renderer: 'WebGL2',
     passes: 1,
-    supportedInputs: ['iTime', 'iResolution', 'iChannel0', 'iChannelResolution[0]'],
+    supportedInputs: ['iTime', 'iClock', 'iResolution', 'iChannel0', 'iChannelResolution[0]'],
     unsupported: [
       'iChannel1–3',
       'video textures',
