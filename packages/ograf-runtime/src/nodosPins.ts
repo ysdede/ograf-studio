@@ -5,13 +5,21 @@
  */
 
 export type NodosPinValues = Record<string, unknown>;
-type Subscriber = (values: NodosPinValues) => void;
+/** Pin values and when each arrived, in epoch milliseconds on the clock Functions read as `nowMs`. */
+type Subscriber = (values: NodosPinValues, receivedAt: Record<string, number>) => void;
 interface NodosHost {
   onData(listener: (values: unknown) => void): unknown;
 }
 interface PinHub {
   subscribers: Set<Subscriber>;
   latest: NodosPinValues;
+  latestAt: Record<string, number>;
+}
+
+/** The clock of Function `nowMs` (logicFunctionRuntime), so arrival times compare with it. */
+export function nodosClock(): number {
+  const performance = globalThis.performance;
+  return performance ? performance.timeOrigin + performance.now() : Date.now();
 }
 
 /** The element name Studio's Nodos page gives its graphic; that page forwards pins itself. */
@@ -50,24 +58,28 @@ export function subscribeNodosPins(view: Window, subscriber: Subscriber): (() =>
   if (typeof scope.nodos?.onData !== 'function') return null;
   let hub = scope[HUB_KEY];
   if (!hub) {
-    const created: PinHub = { subscribers: new Set(), latest: {} };
+    const created: PinHub = { subscribers: new Set(), latest: {}, latestAt: {} };
     hub = scope[HUB_KEY] = created;
     scope.nodos.onData((values) => {
+      // Stamped before any other work: timing QA measures delivery to the page, not to the graphic.
+      const at = nodosClock();
       if (!values || typeof values !== 'object' || Array.isArray(values)) return;
-      const changed: NodosPinValues = {};
+      const changed: NodosPinValues = {}, receivedAt: Record<string, number> = {};
       for (const [key, value] of Object.entries(values)) {
         try {
           changed[key] = snapshot(value);
+          receivedAt[key] = at;
         } catch (error) {
           console.error(`Nodos pin "${key}":`, error);
         }
       }
       Object.assign(created.latest, changed);
-      for (const listener of created.subscribers) listener(changed);
+      Object.assign(created.latestAt, receivedAt);
+      for (const listener of created.subscribers) listener(changed, receivedAt);
     });
   }
   hub.subscribers.add(subscriber);
-  if (Object.keys(hub.latest).length) subscriber({ ...hub.latest });
+  if (Object.keys(hub.latest).length) subscriber({ ...hub.latest }, { ...hub.latestAt });
   const subscribers = hub.subscribers;
   return () => subscribers.delete(subscriber);
 }
