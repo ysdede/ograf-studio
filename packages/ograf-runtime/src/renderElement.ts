@@ -552,6 +552,17 @@ function rememberPaint(container: HTMLElement, paint: Paint): void {
 }
 
 /** Re-evaluates gradient-stop tracks against the currently rendered authored/data-bound paint. */
+// The base paint as last parsed per host. A shader paint's JSON carries its whole fragment source, and bound layers
+// redraw on every data update, so parsing it again each time cost more than the update itself.
+const basePaintCache = new WeakMap<HTMLElement, { serialized: string; paint: Paint }>();
+function parsedBasePaint(host: HTMLElement, serialized: string): Paint {
+  const cached = basePaintCache.get(host);
+  if (cached?.serialized === serialized) return cached.paint;
+  const paint = JSON.parse(serialized) as Paint;
+  basePaintCache.set(host, { serialized, paint });
+  return paint;
+}
+
 export function applyAnimatedPaint(
   container: HTMLElement,
   tracks: LayerAnimationTracks,
@@ -569,7 +580,7 @@ export function applyAnimatedPaint(
   const content = renderHost.firstElementChild as HTMLElement | null;
   if (!content) return;
   if (serialized) {
-    const paint = JSON.parse(serialized) as Paint;
+    const paint = parsedBasePaint(renderHost, serialized);
     const sampledPaint = getPaintAtFrame(paint, tracks, frame);
     const background = paintToCss(sampledPaint);
     for (const fillHost of textCrawlPaintTargets(renderHost) ?? [
