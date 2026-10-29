@@ -136,7 +136,15 @@ import {
   type FiredRuntimeVisualRule,
 } from './runtimeVisualRules';
 import { MediaCueRuntime } from './mediaCueRuntime';
-import { NODOS_PAGE_GRAPHIC_TAG, subscribeNodosPins, type NodosPinValues } from './nodosPins';
+import {
+  NODOS_PAGE_GRAPHIC_TAG,
+  nodosClock,
+  subscribeNodosPins,
+  type NodosPinValues,
+} from './nodosPins';
+
+const isPlainObject = (value: unknown): value is Record<string, unknown> =>
+  !!value && typeof value === 'object' && !Array.isArray(value);
 import { createLogicFunctionRuntime } from './logicFunctionRuntime';
 import { renderTextAnimationAtFrame, setTextAnimationPrevious } from './textAnimationRendering';
 import {
@@ -318,8 +326,14 @@ interface NodosPinBinding {
   owned: Set<string>;
   /** The latest values not yet applied; one update runs at a time and the latest values win. */
   pending: NodosPinValues;
+  /** Arrival of each pending value, and the object values it superseded (oldest first). */
+  pendingAt: Record<string, number>;
+  superseded: Record<string, { at: number; value: unknown }[]>;
   running: boolean;
 }
+
+/** Object pin values superseded before an update applied them, kept for the graphic to read. */
+const MAX_SUPERSEDED = 16;
 
 export abstract class GraphicElement extends HTMLElement implements Graphic {
   static descriptor: CompiledGraphicDescriptor;
@@ -2546,10 +2560,14 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
       keys: new Set(Object.keys(this.descriptor.dataDefaults ?? {})),
       owned: new Set<string>(),
       pending: {},
+      pendingAt: {},
+      superseded: {},
       running: false,
     };
     this.#nodosPins = pins;
-    const unsubscribe = subscribeNodosPins(view, (values) => this.#receiveNodosPins(pins, values));
+    const unsubscribe = subscribeNodosPins(view, (values, receivedAt) =>
+      this.#receiveNodosPins(pins, values, receivedAt),
+    );
     if (unsubscribe && this.#nodosPins === pins) pins.unsubscribe = unsubscribe;
     else {
       unsubscribe?.();
@@ -2562,11 +2580,22 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
     this.#nodosPins = null;
   }
 
-  #receiveNodosPins(pins: NodosPinBinding, values: NodosPinValues): void {
+  #receiveNodosPins(
+    pins: NodosPinBinding,
+    values: NodosPinValues,
+    receivedAt: Record<string, number>,
+  ): void {
     let changed = false;
     for (const [key, value] of Object.entries(values)) {
       if (!pins.keys.has(key)) continue;
+      const previous = pins.pending[key];
+      if (Object.hasOwn(pins.pending, key) && isPlainObject(previous)) {
+        const list = (pins.superseded[key] ??= []);
+        list.push({ at: pins.pendingAt[key]!, value: previous });
+        if (list.length > MAX_SUPERSEDED) list.shift();
+      }
       pins.pending[key] = value;
+      pins.pendingAt[key] = receivedAt[key] ?? nodosClock();
       pins.owned.add(key);
       changed = true;
     }
@@ -2576,8 +2605,17 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
   async #flushNodosPins(pins: NodosPinBinding): Promise<void> {
     if (pins.running || this.#nodosPins !== pins || !Object.keys(pins.pending).length) return;
     pins.running = true;
-    const data = pins.pending;
+    // An object value carries `__nodos: { at, prior }`: when it arrived (the clock of Function nowMs) and
+    // the values it superseded while an update was running, oldest first. Graphics that time samples
+    // (tracking QA) read every arrival; others ignore the member.
+    const data: NodosPinValues = {};
+    for (const [key, value] of Object.entries(pins.pending))
+      data[key] = isPlainObject(value)
+        ? { ...value, __nodos: { at: pins.pendingAt[key], prior: pins.superseded[key] ?? [] } }
+        : value;
     pins.pending = {};
+    pins.pendingAt = {};
+    pins.superseded = {};
     try {
       const result = await this.#runUpdate({ data, skipAnimation: true });
       if (result && result.statusCode >= 400)

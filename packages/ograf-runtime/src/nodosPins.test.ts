@@ -22,8 +22,8 @@ describe('subscribeNodosPins', () => {
     const stop = subscribeNodosPins(page.view, second)!;
     page.send({ Track: { fov: 40n } });
     expect(page.onData).toHaveBeenCalledTimes(1);
-    expect(first).toHaveBeenCalledWith({ Track: { fov: 40 } });
-    expect(second).toHaveBeenCalledWith({ Track: { fov: 40 } });
+    expect(first).toHaveBeenCalledWith({ Track: { fov: 40 } }, { Track: expect.any(Number) });
+    expect(second).toHaveBeenCalledWith({ Track: { fov: 40 } }, { Track: expect.any(Number) });
     stop();
     page.send({ Track: { fov: 41 } });
     expect(second).toHaveBeenCalledTimes(1);
@@ -38,7 +38,10 @@ describe('subscribeNodosPins', () => {
     reused.fov = 99;
     const late = vi.fn();
     subscribeNodosPins(page.view, late);
-    expect(late).toHaveBeenCalledWith({ Track: { fov: 40 }, URL: 'page.html' });
+    expect(late).toHaveBeenCalledWith(
+      { Track: { fov: 40 }, URL: 'page.html' },
+      { Track: expect.any(Number), URL: expect.any(Number) },
+    );
   });
 
   it('drops values that are not JSON data and keeps the rest', () => {
@@ -47,7 +50,7 @@ describe('subscribeNodosPins', () => {
     const subscriber = vi.fn();
     subscribeNodosPins(page.view, subscriber);
     page.send({ Bad: Number.NaN, Big: 2n ** 60n, Good: [1, 'a', true, null] });
-    expect(subscriber).toHaveBeenCalledWith({ Good: [1, 'a', true, null] });
+    expect(subscriber).toHaveBeenCalledWith({ Good: [1, 'a', true, null] }, { Good: expect.any(Number) });
     expect(error).toHaveBeenCalledTimes(2);
     error.mockRestore();
   });

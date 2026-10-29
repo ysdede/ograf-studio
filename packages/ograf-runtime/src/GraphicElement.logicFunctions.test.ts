@@ -233,6 +233,36 @@ describe('GraphicElement Nodos pins', () => {
   });
 });
 
+describe('GraphicElement Nodos pin arrivals', () => {
+  it('stamps object pin values and keeps the values an update superseded', async () => {
+    let send: (values: unknown) => void = () => {};
+    const view = document.defaultView as unknown as Record<PropertyKey, unknown>;
+    view.nodos = { onData: (listener: typeof send) => (send = listener) };
+    const compiled = descriptor();
+    compiled.dataDefaults = { ...compiled.dataDefaults, settings: { amount: 1 } };
+    try {
+      const instance = await graphic(compiled);
+      fixture.invoke.mockClear();
+      send({ settings: { amount: 1 } });
+      send({ settings: { amount: 2 } });
+      send({ settings: { amount: 3 } });
+      await flush();
+      const seen = fixture.invoke.mock.calls
+        .map(([ctx]) => ctx)
+        .filter((ctx) => ctx.event.type === 'data')
+        .map((ctx) => ctx.data.settings as { amount: number; __nodos: { at: number; prior: { at: number; value: { amount: number } }[] } });
+      expect(seen.at(-1)!.amount).toBe(3);
+      const all = seen.flatMap((s) => [...s.__nodos.prior.map((p) => p.value.amount), s.amount]);
+      expect(all).toEqual([1, 2, 3]);
+      for (const s of seen) expect(s.__nodos.at).toBeGreaterThan(1e12);
+      await instance.dispose();
+    } finally {
+      delete view.nodos;
+      delete view[Symbol.for('ograf.runtime.nodosPins')];
+    }
+  });
+});
+
 describe('GraphicElement function integration', () => {
   it('replays normalized pointer edges and keyboard rules once without relaying them again', async () => {
     const compiled = descriptor();
