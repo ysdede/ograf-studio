@@ -158,12 +158,24 @@ const EFFECT_BLEND_INDEX: Record<EffectBlendMode, number> = {
   lighten: 6,
 };
 
+/**
+ * The page clock in seconds, modulo 4096 so a float keeps sub-millisecond precision: the clock Functions read as
+ * `nowMs` (epoch milliseconds) and Nodos pin arrivals are stamped with. A realtime shader compares Function-supplied
+ * sample times with it (wrap-safe: `mod(iClock - t + 2048.0, 4096.0) - 2048.0`), which `iTime` cannot do because it
+ * counts from playback start. Not for deterministic (seek or capture) renders.
+ */
+export const SHADER_CLOCK_PERIOD_S = 4096;
+export function shaderClockSeconds(epochMs = (globalThis.performance ? performance.timeOrigin + performance.now() : Date.now())): number {
+  return (epochMs / 1000) % SHADER_CLOCK_PERIOD_S;
+}
+
 export function shaderFragmentSource(source: string, effect = false, textTint = false): string {
   if (effect && textTint) throw new Error('Text tint is not supported on shader effect passes.');
   return `#version 300 es
 precision highp float;
 precision highp int;
 uniform float iTime;
+uniform float iClock;
 uniform vec3 iResolution;
 uniform sampler2D iChannel0;
 uniform vec3 iChannelResolution[4];
@@ -326,6 +338,7 @@ export function createShaderRenderer(
   let currentEffectConfig = effectConfig;
   let framebuffer: WebGLFramebuffer | null = null;
   let timeUniform: WebGLUniformLocation | null = null;
+  let clockUniform: WebGLUniformLocation | null = null;
   let resolutionUniform: WebGLUniformLocation | null = null;
   let channelResolutionUniform: WebGLUniformLocation | null = null;
   let effectBlendUniform: WebGLUniformLocation | null = null;
@@ -491,6 +504,7 @@ export function createShaderRenderer(
       vertexArray = gl.createVertexArray();
       if (!vertexArray) throw new Error('Unable to allocate a WebGL vertex array.');
       timeUniform = gl.getUniformLocation(program, 'iTime');
+      clockUniform = gl.getUniformLocation(program, 'iClock');
       resolutionUniform = gl.getUniformLocation(program, 'iResolution');
       channelResolutionUniform = gl.getUniformLocation(program, 'iChannelResolution[0]');
       effectBlendUniform = currentEffectConfig
@@ -587,6 +601,7 @@ export function createShaderRenderer(
     gl.bindVertexArray(vertexArray);
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, coverageTexture);
+    if (clockUniform) gl.uniform1f(clockUniform, shaderClockSeconds());
     if (textTint && textTintTexture) {
       gl.activeTexture(gl.TEXTURE2);
       gl.bindTexture(gl.TEXTURE_2D, textTintTexture);
@@ -778,6 +793,7 @@ export function createShaderRenderer(
     inputTexture = null;
     framebuffer = null;
     timeUniform = null;
+    clockUniform = null;
     resolutionUniform = null;
     channelResolutionUniform = null;
     effectBlendUniform = null;

@@ -297,7 +297,13 @@ describe('WebGL shader lifecycle', () => {
     renderer.render(4000);
     renderer.render(1000);
     renderer.render(4000);
-    expect(gl.uniform1f.mock.calls.map((call) => call[1])).toEqual([0, 8, 2, 8]);
+    const named = (name: string) =>
+      gl.uniform1f.mock.calls.filter((call) => (call[0] as { name: string }).name === name);
+    expect(named('iTime').map((call) => call[1])).toEqual([0, 8, 2, 8]);
+    // iClock is the page clock (seconds modulo 4096), set on every frame alongside iTime.
+    expect(named('iClock')).toHaveLength(4);
+    for (const [, value] of named('iClock')) expect(value).toBeGreaterThanOrEqual(0);
+    for (const [, value] of named('iClock')) expect(value).toBeLessThan(4096);
     expect(gl.uniform3f).toHaveBeenLastCalledWith({ name: 'iResolution' }, 1920, 1080, 1);
     expect(canvas.getContext).toHaveBeenCalledWith(
       'webgl2',
