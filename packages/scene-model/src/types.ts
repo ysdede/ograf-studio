@@ -1834,6 +1834,11 @@ export interface LogicFunctionContext {
   data: Record<string, LogicJsonValue>;
   event: LogicFunctionEvent;
   nowMs: number;
+  /**
+   * The page clock (epoch milliseconds) at which `nowMs` was 0. `clockOriginMs + nowMs` is the clock that Nodos pin
+   * arrivals are stamped with and that realtime shaders read as `iClock` (seconds modulo 4096).
+   */
+  clockOriginMs?: number;
   /** Latest authored composition pixels, present only when the function opts into mouse input. */
   pointer?: { x: number; y: number } | null;
 }

@@ -402,6 +402,7 @@ export function createLogicFunctionRuntime(options: LogicFunctionRuntimeOptions)
         data: inputData(entry),
         event: clone(event),
         nowMs: event.type === 'load' ? 0 : invocationStart,
+        ...(options.clock ? {} : { clockOriginMs: epoch }),
         ...(entry.definition.pointer === true
           ? {
               pointer:
