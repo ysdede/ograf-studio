@@ -246,6 +246,8 @@ export class ShaderContextLostError extends Error {
 
 export interface ShaderRenderer {
   render(elapsedMs: number): void;
+  /** The animation loop's draw: like render, and tells a coalescing renderer that the loop is running. */
+  tick(elapsedMs: number): void;
   updateParameters(element: ShaderPaint): void;
   setCoverage(source: TexImageSource | null): void;
   /** Experimental: only available when explicitly requested at renderer creation. */
@@ -608,7 +610,6 @@ export function createShaderRenderer(
   const render = (timestampMs: number) => {
     elapsedMs = timestampMs;
     dirty = false;
-    lastRenderAt = now();
     checkReady();
     if (pool && (gpuCanvas.width !== canvas.width || gpuCanvas.height !== canvas.height)) {
       gpuCanvas.width = canvas.width;
@@ -800,13 +801,19 @@ export function createShaderRenderer(
   let flushHandle = 0;
   const flushView = canvas.ownerDocument.defaultView ?? globalThis;
   const now = () => globalThis.performance?.now?.() ?? Date.now();
-  let lastRenderAt = Number.NEGATIVE_INFINITY;
+  // Set by the animation loop's own draws only: an update's flush does not count, or a static shader that gets updates in
+  // consecutive frames would skip every flush after the first and show stale parameters.
+  let lastTickAt = Number.NEGATIVE_INFINITY;
+  const tick = (timestampMs: number) => {
+    lastTickAt = now();
+    render(timestampMs);
+  };
   const flush = () => {
     flushHandle = 0;
     if (!dirty || disposed) return;
     // A running animation loop drew a frame ago and its next draw carries these parameters; draw here only when
-    // nothing else would (a static shader, or a loop slower than the display).
-    if (now() - lastRenderAt < 20) return;
+    // nothing else would (a static shader, or a loop slower than 25 Hz).
+    if (now() - lastTickAt < 40) return;
     try {
       render(elapsedMs);
     } catch (cause) {
@@ -969,6 +976,7 @@ export function createShaderRenderer(
   };
   return {
     render,
+    tick,
     updateParameters,
     setCoverage,
     setTextTint,
@@ -1090,7 +1098,7 @@ export function renderShaderAtTime(container: HTMLElement, elapsedMs: number): v
   const mounted = mountedShaders.get(container);
   if (!mounted) throw new Error('Shader background is not mounted.');
   if (mounted.error) throw mounted.error;
-  mounted.renderer?.render(elapsedMs);
+  mounted.renderer?.tick(elapsedMs);
 }
 
 export async function waitForShadersReady(root: ParentNode): Promise<void> {
