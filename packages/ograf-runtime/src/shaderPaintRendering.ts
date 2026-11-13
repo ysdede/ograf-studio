@@ -18,6 +18,7 @@ import {
   setShaderTextTint,
   updateShaderParameters,
 } from './shaderRendering';
+import { DIRECT_SHADER_ATTRIBUTE } from './shaderRendering';
 
 interface RenderOptions {
   shaderBackingSize?: { width: number; height: number };
@@ -57,6 +58,11 @@ interface MountedPaint {
   completed: number;
   busy: boolean;
   disposed: boolean;
+  /** A realtime graphic: data updates mark the paint dirty and the animation tick draws it (see requestUpdatedFrame). */
+  coalesce: boolean;
+  dirty: boolean;
+  flushHandle: number;
+  lastTickAt: number;
   error?: Error;
   waiters: Array<{ revision: number; resolve: () => void }>;
 }
@@ -387,6 +393,10 @@ export function mountShaderPaintContent(
     completed: -1,
     busy: false,
     disposed: false,
+    coalesce: (container.getRootNode?.() as ShadowRoot | undefined)?.host?.hasAttribute?.(DIRECT_SHADER_ATTRIBUTE) === true,
+    dirty: false,
+    flushHandle: 0,
+    lastTickAt: Number.NEGATIVE_INFINITY,
     waiters: [],
   };
   mountedPaints.set(container, mounted);
@@ -412,7 +422,8 @@ export function updateShaderPaintContent(
   mounted.options = options;
   const slotsChanged = reconcileSlots(mounted, element);
   const baseIdentity = JSON.stringify(shaderPaintBaseElement(element));
-  if (baseIdentity !== mounted.baseIdentity || slotsChanged || paddingChanged) {
+  const reconfigured = baseIdentity !== mounted.baseIdentity || slotsChanged || paddingChanged;
+  if (reconfigured) {
     delete mounted.error;
     delete mounted.container.dataset.ografShaderError;
     mounted.container.querySelector('[data-ograf-shader-fill-error]')?.remove();
@@ -424,13 +435,42 @@ export function updateShaderPaintContent(
       throw error;
     }
   }
-  requestFrame(mounted, mounted.time);
+  if (reconfigured) requestFrame(mounted, mounted.time);
+  else requestUpdatedFrame(mounted);
   return true;
+}
+
+/**
+ * A realtime graphic updates its data and runs its Function many times a frame, and its shader animation already draws
+ * every frame, so a data update only marks the paint dirty and one draw per frame follows. The flush draws only when
+ * the animation tick is not running (a static shader, or a loop slower than the display); a running tick draws the
+ * current parameters itself, at most one frame later. Measured on Tracking QA: the AR layer drew twice per frame.
+ */
+const TICK_ALIVE_MS = 40;
+const clock = () => globalThis.performance?.now?.() ?? Date.now();
+function requestUpdatedFrame(mounted: MountedPaint): void {
+  if (!mounted.coalesce) return requestFrame(mounted, mounted.time);
+  mounted.dirty = true;
+  if (mounted.flushHandle) return;
+  const view = mounted.container.ownerDocument.defaultView ?? globalThis;
+  if (typeof view.requestAnimationFrame !== 'function') {
+    mounted.dirty = false;
+    return requestFrame(mounted, mounted.time);
+  }
+  mounted.flushHandle = view.requestAnimationFrame(() => {
+    mounted.flushHandle = 0;
+    if (!mounted.dirty || mounted.disposed) return;
+    mounted.dirty = false;
+    if (clock() - mounted.lastTickAt < TICK_ALIVE_MS) return;
+    requestFrame(mounted, mounted.time);
+  });
 }
 
 export function renderShaderPaintAtTime(container: HTMLElement, elapsedMs: number): boolean {
   const mounted = mountedPaints.get(container);
   if (!mounted) return false;
+  mounted.lastTickAt = clock();
+  mounted.dirty = false;
   requestFrame(mounted, elapsedMs);
   return true;
 }
@@ -476,6 +516,8 @@ export function disposeShaderPaintContent(container: HTMLElement): void {
   const mounted = mountedPaints.get(container);
   if (!mounted) return;
   mounted.disposed = true;
+  if (mounted.flushHandle) (mounted.container.ownerDocument.defaultView ?? globalThis).cancelAnimationFrame?.(mounted.flushHandle);
+  mounted.flushHandle = 0;
   for (const entry of mounted.slots.values()) removeSlot(entry);
   mounted.slots.clear();
   mounted.native.dispose(mounted.baseHost);

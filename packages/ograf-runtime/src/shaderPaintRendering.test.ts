@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock('./shaderPaintMask', () => ({ createShaderPaintMask: mocks.mask }));
 vi.mock('./shaderRendering', () => ({
+  DIRECT_SHADER_ATTRIBUTE: 'data-ograf-direct-shaders',
   mountShader: (host: HTMLElement, paint: unknown, size: unknown) => {
     mocks.mount(host, paint, size);
     const canvas = host.ownerDocument.createElement('canvas');
@@ -209,6 +210,39 @@ describe('shader fill content lifecycle', () => {
     disposeShaderPaintContent(container);
   });
 
+  it('draws the data updates of a realtime graphic once per frame, and leaves them to a running animation tick', async () => {
+    const frames: Array<() => void> = [];
+    const mask = { ready: Promise.resolve(), update: vi.fn(async () => ({}) as HTMLCanvasElement), dispose: vi.fn() };
+    mocks.mask.mockReturnValue(mask);
+    const { container, element, native } = fixture();
+    Object.assign(container, {
+      getRootNode: () => ({ host: { hasAttribute: (name: string) => name === 'data-ograf-direct-shaders' } }),
+    });
+    Object.assign(container.ownerDocument, {
+      defaultView: { requestAnimationFrame: (cb: () => void) => frames.push(cb), cancelAnimationFrame: vi.fn() },
+    });
+    mountShaderPaintContent(container, element, {}, native);
+    await waitForShaderPaintContentReady(container);
+    mocks.draw.mockClear();
+    // No animation tick yet (a static shader): two updates in a frame draw once, in the next frame.
+    updateShaderPaintContent(container, element, {});
+    updateShaderPaintContent(container, element, {});
+    expect(mocks.draw).not.toHaveBeenCalled();
+    expect(frames).toHaveLength(1);
+    frames.shift()!();
+    await waitForShaderPaintContentReady(container);
+    expect(mocks.draw).toHaveBeenCalledTimes(1);
+    // A running tick draws every frame itself: updates add no draw of their own.
+    renderShaderPaintAtTime(container, 100);
+    await waitForShaderPaintContentReady(container);
+    mocks.draw.mockClear();
+    updateShaderPaintContent(container, element, {});
+    updateShaderPaintContent(container, element, {});
+    frames.shift()!();
+    await waitForShaderPaintContentReady(container);
+    expect(mocks.draw).not.toHaveBeenCalled();
+    disposeShaderPaintContent(container);
+  });
   it('settles pending readiness on disposal and never draws late asynchronous coverage', async () => {
     let ready = () => {};
     const gate = new Promise<void>((resolve) => {
