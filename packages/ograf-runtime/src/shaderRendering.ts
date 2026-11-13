@@ -20,6 +20,20 @@ const physicalContexts = new Map<WebGL2RenderingContext, { count: number; lost: 
 let lostShaderContexts = 0;
 type SharedContext = { canvas: HTMLCanvasElement; gl: WebGL2RenderingContext; users: number };
 const sharedContexts = new WeakMap<object, SharedContext>();
+/**
+ * A realtime page plays one graphic (an ElectroNode renders one page), so its shader layers draw on their own WebGL
+ * contexts, up to this many per graphic. The shared context presents every layer through a Canvas2D copy, a full-frame
+ * copy per layer and frame that doubled the page's main-thread time on a 1080p AR layer. Editor stages and graphics
+ * with more shader layers than this keep the shared context, which spares the browser's context limit.
+ */
+const MAX_DIRECT_CONTEXTS = 8;
+const directContexts = new WeakMap<object, number>();
+/** Set by GraphicElement on a realtime load; read from the graphic that owns the shadow root. */
+export const DIRECT_SHADER_ATTRIBUTE = 'data-ograf-direct-shaders';
+function prefersDirectContexts(scope: object): boolean {
+  const host = (scope as { host?: { hasAttribute?: (name: string) => boolean } }).host;
+  return host?.hasAttribute?.(DIRECT_SHADER_ATTRIBUTE) === true;
+}
 
 /** Counts only contexts owned by this runtime; other libraries may use additional contexts. */
 export function shaderContextCounts(): { live: number; lost: number } {
@@ -276,8 +290,10 @@ export function createShaderRenderer(
   const scope =
     host.closest?.('.canvas-stage-frame') ??
     (root && root.nodeType === 11 && 'host' in root ? root : null);
-  let pool = scope ? sharedContexts.get(scope) : undefined;
-  if (scope && !pool) {
+  const directSlot =
+    !!scope && prefersDirectContexts(scope) && (directContexts.get(scope) ?? 0) < MAX_DIRECT_CONTEXTS;
+  let pool = scope && !directSlot ? sharedContexts.get(scope) : undefined;
+  if (scope && !directSlot && !pool) {
     const surface = canvas.ownerDocument.createElement('canvas');
     const sharedGl = surface.getContext('webgl2', contextOptions);
     if (sharedGl) {
@@ -299,6 +315,7 @@ export function createShaderRenderer(
   if (!gl)
     throw new Error('Shader backgrounds require WebGL 2, which is unavailable in this renderer.');
   if (pool) pool.users += 1;
+  else if (directSlot && scope) directContexts.set(scope, (directContexts.get(scope) ?? 0) + 1);
 
   // Keep the extension obtained while the context is live; getExtension can return null during loss.
   const loseContextExtension = gl.getExtension('WEBGL_lose_context');
@@ -590,6 +607,8 @@ export function createShaderRenderer(
 
   const render = (timestampMs: number) => {
     elapsedMs = timestampMs;
+    dirty = false;
+    lastRenderAt = now();
     checkReady();
     if (pool && (gpuCanvas.width !== canvas.width || gpuCanvas.height !== canvas.height)) {
       gpuCanvas.width = canvas.width;
@@ -769,7 +788,38 @@ export function createShaderRenderer(
     // successful frame usable and can be corrected without replacing its WebGL context.
     currentElement = nextElement;
     parameterValues = nextValues;
-    render(elapsedMs);
+    if (coalesceUpdates) scheduleFlush();
+    else render(elapsedMs);
+  };
+
+  // A realtime graphic's data and tick updates arrive faster than the display refreshes, and its shader animation
+  // already draws every frame, so a parameter change only marks the layer dirty and one draw per frame follows.
+  // (Measured on Tracking QA: 270 draws per second, 178 of them at 1080p, for 60 frames.)
+  const coalesceUpdates = !!scope && prefersDirectContexts(scope);
+  let dirty = false;
+  let flushHandle = 0;
+  const flushView = canvas.ownerDocument.defaultView ?? globalThis;
+  const now = () => globalThis.performance?.now?.() ?? Date.now();
+  let lastRenderAt = Number.NEGATIVE_INFINITY;
+  const flush = () => {
+    flushHandle = 0;
+    if (!dirty || disposed) return;
+    // A running animation loop drew a frame ago and its next draw carries these parameters; draw here only when
+    // nothing else would (a static shader, or a loop slower than the display).
+    if (now() - lastRenderAt < 20) return;
+    try {
+      render(elapsedMs);
+    } catch (cause) {
+      if (!(cause instanceof ShaderContextLostError))
+        reportError(cause instanceof Error ? cause : new Error(String(cause)));
+    }
+  };
+  const scheduleFlush = () => {
+    dirty = true;
+    if (flushHandle) return;
+    if (typeof flushView.requestAnimationFrame === 'function')
+      flushHandle = flushView.requestAnimationFrame(flush);
+    else render(elapsedMs);
   };
 
   const lost = (event: Event) => {
@@ -827,6 +877,8 @@ export function createShaderRenderer(
   const dispose = () => {
     if (disposed) return;
     disposed = true;
+    if (flushHandle) flushView.cancelAnimationFrame?.(flushHandle);
+    flushHandle = 0;
     shaderContexts.delete(contextRecord);
     updatePausedOwner();
     group.count -= 1;
@@ -851,6 +903,8 @@ export function createShaderRenderer(
       loseContextExtension?.loseContext();
       if (scope && pool) sharedContexts.delete(scope);
     }
+    if (!pool && directSlot && scope)
+      directContexts.set(scope, Math.max(0, (directContexts.get(scope) ?? 1) - 1));
     canvas.width = 1;
     canvas.height = 1;
   };
