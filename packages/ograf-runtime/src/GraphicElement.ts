@@ -38,6 +38,7 @@ import { LoopPlaybackController, type LoopPlaybackAction } from './loopPlayback'
 import { applyCompiledMasks } from './maskRendering';
 import { resolvePlayTarget } from './lifecycle';
 import {
+  DIRECT_SHADER_ATTRIBUTE,
   ShaderContextLostError,
   shaderBackingSizeForLayer,
   shaderContextCounts,
@@ -684,6 +685,9 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
     this.#logicFunctions?.rebindOwnerDocument();
     if (this.shadowRoot && this.#layerEls.size > 0) return;
     if (!this.shadowRoot) this.attachShadow({ mode: 'open' });
+    // The shader layers are created by #buildDom, before load(): mark the graphic first. A graphic is realtime
+    // until a load says otherwise.
+    this.toggleAttribute?.(DIRECT_SHADER_ATTRIBUTE, this.#renderType === 'realtime');
     this.#buildDom();
   }
 
@@ -2659,6 +2663,8 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
       this.#contentPlaybackError = null;
       this.#mediaCueRuntime?.reset();
       this.#renderType = params.renderType;
+      // Realtime pages draw each shader layer on its own context; see DIRECT_SHADER_ATTRIBUTE.
+      this.toggleAttribute?.(DIRECT_SHADER_ATTRIBUTE, params.renderType === 'realtime');
       this.#loopPlayback.clear();
       if (!this.#timeline) this.#buildDom();
       const defaults = this.descriptor.dataDefaults ?? {};
