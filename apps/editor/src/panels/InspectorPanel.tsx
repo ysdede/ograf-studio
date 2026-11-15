@@ -47,6 +47,7 @@ import {
   getTypographyOrigin,
 } from '../state/brandKitStyles';
 import { pathConversionError } from '@ograf-editor/scene-model';
+import { getElementShaderPaints, isMediaPaint } from '@ograf-editor/scene-model';
 import {
   getLayerTransformAtFrame,
   useActiveComposition,
@@ -900,6 +901,10 @@ export function InspectorPanel() {
     ? layer.bindings.find((binding) => binding.targetProperty === playoutTarget.value)?.fieldId
     : undefined;
   const playoutField = composition.dataFields.find((field) => field.id === playoutFieldId) ?? null;
+  const selectedTextUsesCanvasPaintMask =
+    layer.element.type === 'text' &&
+    (getElementShaderPaints(layer.element).length > 0 ||
+      isMediaPaint(getElementFill(layer.element)));
   const pathStretchInsets = layer.element.type === 'path' ? layer.element.stretchInsets : undefined;
   const selectedTextElement = layer.element.type === 'text' ? layer.element : null;
   const textAnimationOwnsUpdate =
@@ -1883,6 +1888,32 @@ export function InspectorPanel() {
                     })
                   }
                 />
+              </PropertyRow>
+              <PropertyRow
+                help={
+                  selectedTextUsesCanvasPaintMask
+                    ? 'Shader and media text masks use Canvas glyph rasterization, which cannot preserve tabular or proportional figures. Use Font default while this paint is applied.'
+                    : 'Controls whether numeric glyphs use the font default, equal-width figures, or proportional figures.'
+                }
+                className="inspector-row"
+              >
+                <span>Number style</span>
+                <select
+                  value={layer.element.fontVariantNumeric ?? 'normal'}
+                  onChange={(e) =>
+                    setTextElement({
+                      fontVariantNumeric: e.target.value as TextElement['fontVariantNumeric'],
+                    })
+                  }
+                >
+                  <option value="normal">Font default</option>
+                  <option value="tabular-nums" disabled={selectedTextUsesCanvasPaintMask}>
+                    Tabular figures
+                  </option>
+                  <option value="proportional-nums" disabled={selectedTextUsesCanvasPaintMask}>
+                    Proportional figures
+                  </option>
+                </select>
               </PropertyRow>
               <PropertyRow
                 help={'Horizontal alignment of the text within its box: left, centered or right.'}

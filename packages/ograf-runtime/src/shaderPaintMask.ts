@@ -605,6 +605,15 @@ export function createShaderPaintMask(
   size: Size,
   options: ShaderPaintMaskOptions = {},
 ): ShaderPaintMask {
+  if (
+    element.type === 'text' &&
+    element.fontVariantNumeric !== undefined &&
+    element.fontVariantNumeric !== 'normal'
+  ) {
+    throw new Error(
+      `Canvas text masks for shader/media paint cannot preserve fontVariantNumeric "${element.fontVariantNumeric}"; use normal or omit fontVariantNumeric.`,
+    );
+  }
   if (options.slot === 'stroke' && element.type !== 'text') {
     throw new Error('Shader stroke alpha is currently supported only for native text.');
   }

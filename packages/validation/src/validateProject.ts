@@ -933,6 +933,7 @@ function validateComposition(composition: Composition, errors: string[], warning
         if (!Number.isFinite(layer.element.strokeWidth) || layer.element.strokeWidth < 0) {
           errors.push(`${owner} text stroke width must be finite and non-negative.`);
         }
+        errors.push(...textNumericVariantErrors(layer.element, owner));
       } else if (layer.animationTracks.strokeWidth?.length) {
         errors.push(
           `${owner} cannot animate text stroke width on a ${layer.element.type} element.`,
@@ -2452,6 +2453,9 @@ function validateComposition(composition: Composition, errors: string[], warning
       if (!Number.isFinite(layer.element.baselineShift)) {
         errors.push(`${prefix}: text layer "${layer.name}" baseline shift must be finite.`);
       }
+      errors.push(
+        ...textNumericVariantErrors(layer.element, `${prefix}: text layer "${layer.name}"`),
+      );
       for (const [axis, margin] of [
         ['horizontal', layer.element.clipMarginX],
         ['vertical', layer.element.clipMarginY],
@@ -2540,6 +2544,25 @@ function validateComposition(composition: Composition, errors: string[], warning
 }
 
 /** Structural validation for the editor document, before compiling the OGraf manifest/runtime. */
+const NUMERIC_FONT_VARIANTS = new Set(['normal', 'tabular-nums', 'proportional-nums']);
+
+function textNumericVariantErrors(
+  element: import('@ograf-editor/scene-model').TextElement,
+  who: string,
+): string[] {
+  const variant = element.fontVariantNumeric;
+  if (variant === undefined) return [];
+  if (!NUMERIC_FONT_VARIANTS.has(variant)) return [`${who} has an invalid numeric font variant.`];
+  if (
+    variant !== 'normal' &&
+    (getElementShaderPaints(element).length > 0 || isMediaPaint(element.fill))
+  )
+    return [
+      `${who} cannot use a non-normal numeric font variant with Canvas-masked text paint (shader or media); use normal or omit fontVariantNumeric.`,
+    ];
+  return [];
+}
+
 export function validateProject(project: Project): ProjectValidationResult {
   const errors: string[] = [];
   const warnings: string[] = [];
