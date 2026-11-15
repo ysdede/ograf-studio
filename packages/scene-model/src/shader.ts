@@ -210,17 +210,21 @@ let sourceInspectionBytes = 0;
 const MAX_CACHED_SHADER_SOURCES = 32;
 const MAX_CACHED_SHADER_BYTES = 8 * 1024 * 1024;
 
+function copyShaderParameter(parameter: ShaderParameterDefinition): ShaderParameterDefinition {
+  return {
+    ...parameter,
+    defaultValue: Array.isArray(parameter.defaultValue)
+      ? [...parameter.defaultValue]
+      : parameter.defaultValue,
+  };
+}
+
 function copyShaderInspection(inspection: ShaderInspection): ShaderInspection {
   return {
     ...inspection,
     errors: [...inspection.errors],
     warnings: [...inspection.warnings],
-    parameters: inspection.parameters.map((parameter) => ({
-      ...parameter,
-      defaultValue: Array.isArray(parameter.defaultValue)
-        ? [...parameter.defaultValue]
-        : parameter.defaultValue,
-    })),
+    parameters: inspection.parameters.map(copyShaderParameter),
   };
 }
 
@@ -295,12 +299,15 @@ function inspectShaderSourceUncached(source: unknown): ShaderInspection {
   };
 }
 
-/** Source contracts are immutable; keyed uniform updates must not reparse unchanged GLSL. */
-export function inspectShaderSource(source: unknown): ShaderInspection {
+/**
+ * The cached contract of a source, shared and never handed out: keyed uniform updates must not
+ * reparse unchanged GLSL, and callers must not be able to change what the next caller reads.
+ */
+function shaderSourceContract(source: unknown): ShaderInspection {
   if (typeof source !== 'string' || source.length > MAX_SHADER_SOURCE_BYTES)
     return inspectShaderSourceUncached(source);
   const cached = sourceInspections.get(source);
-  if (cached) return copyShaderInspection(cached.inspection);
+  if (cached) return cached.inspection;
   const inspection = inspectShaderSourceUncached(source);
   const bytes = new TextEncoder().encode(source).byteLength;
   if (bytes <= MAX_SHADER_SOURCE_BYTES) {
@@ -316,30 +323,46 @@ export function inspectShaderSource(source: unknown): ShaderInspection {
     sourceInspections.set(source, { bytes, inspection });
     sourceInspectionBytes += bytes;
   }
-  return copyShaderInspection(inspection);
+  return inspection;
+}
+
+export function inspectShaderSource(source: unknown): ShaderInspection {
+  return copyShaderInspection(shaderSourceContract(source));
+}
+
+const parameterDefinitions = new WeakMap<
+  ShaderInspection,
+  Map<string, ShaderParameterDefinition>
+>();
+
+function definitionsFor(inspection: ShaderInspection): Map<string, ShaderParameterDefinition> {
+  let definitions = parameterDefinitions.get(inspection);
+  if (!definitions) {
+    definitions = new Map(inspection.parameters.map((definition) => [definition.name, definition]));
+    parameterDefinitions.set(inspection, definitions);
+  }
+  return definitions;
 }
 
 /**
- * One parameter definition from the cached source contract, without copying the whole contract.
- * Per-binding lookups use this so shaders with many bound parameters stay linear per update.
+ * One parameter's definition, looked up in the cached contract without copying the whole contract.
+ * The caller owns the returned copy. It does not check that the source is valid: pair it with
+ * resolveShaderParameters, which rejects an invalid contract and invalid sibling values.
  */
 export function shaderParameterDefinition(
   source: unknown,
   name: string,
-): Readonly<ShaderParameterDefinition> | undefined {
-  const cached = typeof source === 'string' ? sourceInspections.get(source) : undefined;
-  const parameters = cached ? cached.inspection.parameters : inspectShaderSource(source).parameters;
-  return parameters.find((parameter) => parameter.name === name);
+): ShaderParameterDefinition | undefined {
+  const definition = definitionsFor(shaderSourceContract(source)).get(name);
+  return definition ? copyShaderParameter(definition) : undefined;
 }
 
 export function resolveShaderParameters(
   element: ShaderElement,
 ): Record<string, ShaderParameterValue> {
-  const inspection = inspectShaderSource(element.fragmentSource);
+  const inspection = shaderSourceContract(element.fragmentSource);
   if (!inspection.valid) throw new Error(inspection.errors.join('\n'));
-  const definitions = new Map(
-    inspection.parameters.map((definition) => [definition.name, definition]),
-  );
+  const definitions = definitionsFor(inspection);
   const values = element.parameters ?? {};
   if (!values || typeof values !== 'object' || Array.isArray(values))
     throw new Error('Shader parameters must be an object keyed by exposed symbol name.');

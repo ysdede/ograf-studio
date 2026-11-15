@@ -145,10 +145,8 @@ export function applyElementDataValue(element: Element, property: string, value:
     const definition = shaderParameterDefinition(shader.fragmentSource, name);
     if (!definition) throw new Error(`Unknown shader parameter "${name}".`);
     let normalized = normalizeShaderParameterValue(definition, value);
-    // Only colour controls need the authored value; resolving every parameter per binding made
-    // shaders with many bound parameters quadratic on each data update.
-    const authored =
-      definition.control === 'color' ? resolveShaderParameters(shader)[name] : undefined;
+    // Resolving the set also rejects an invalid contract and invalid sibling values.
+    const authored = resolveShaderParameters(shader)[name];
     // GDD hex defaults quantize to 8 bits; retain exact authored channels for that default.
     if (
       definition.control === 'color' &&
@@ -201,11 +199,12 @@ export function applyElementDataValue(element: Element, property: string, value:
   } as Element;
 }
 
-/** The value `applyElementDataValue` would replace; `undefined` when the element lacks it. */
 /**
- * Applies several bound values in order, as repeated applyElementDataValue calls would. Consecutive
- * shader parameter values share one copy of the paint's parameters, so a layer with many bound
- * parameters costs linear rather than quadratic time per data update.
+ * Applies several bound values in order, as repeated applyElementDataValue calls would, with the
+ * same checks. Consecutive shader parameter values share one copy of the paint's parameters and
+ * one validation of it (the values written along the way are normalized, so they cannot make it
+ * invalid), so a layer with many bound parameters costs linear rather than quadratic time per
+ * data update.
  */
 export function applyElementDataValues(
   element: Element,
@@ -240,13 +239,18 @@ export function applyElementDataValues(
     const name = shaderTarget[2]!;
     const definition = shaderParameterDefinition(shader.fragmentSource, name);
     if (!definition) throw new Error(`Unknown shader parameter "${name}".`);
-    pending ??= { slot, parameters: { ...shader.parameters } };
+    if (!pending) {
+      resolveShaderParameters(shader);
+      pending = { slot, parameters: { ...shader.parameters } };
+    }
     let normalized: unknown = normalizeShaderParameterValue(definition, value);
     if (definition.control === 'color') {
-      const authored = resolveShaderParameters({
-        ...shader,
-        parameters: pending.parameters,
-      } as typeof shader)[name];
+      const authored = normalizeShaderParameterValue(
+        definition,
+        Object.prototype.hasOwnProperty.call(pending.parameters, name)
+          ? pending.parameters[name]
+          : definition.defaultValue,
+      );
       if (
         Array.isArray(authored) &&
         typeof value === 'string' &&
@@ -259,6 +263,7 @@ export function applyElementDataValues(
   return flush(current);
 }
 
+/** The value `applyElementDataValue` would replace; `undefined` when the element lacks it. */
 export function readElementDataValue(element: Element, property: string): unknown {
   if (element.type === 'ticker') {
     if (property === 'items') return element.items;
@@ -296,17 +301,7 @@ export function readElementDataValue(element: Element, property: string): unknow
       element,
       shaderTarget[1] === 'strokePaint' ? 'stroke' : 'fill',
     );
-    if (!shader) return undefined;
-    // Resolve just this parameter: bindings read one value each, and resolving the whole set per
-    // read is quadratic for shaders with many bound parameters.
-    const name = shaderTarget[2]!;
-    const definition = shaderParameterDefinition(shader.fragmentSource, name);
-    if (!definition) return undefined;
-    const values = shader.parameters ?? {};
-    return normalizeShaderParameterValue(
-      definition,
-      Object.prototype.hasOwnProperty.call(values, name) ? values[name] : definition.defaultValue,
-    );
+    return shader ? resolveShaderParameters(shader)[shaderTarget[2]!] : undefined;
   }
   const stop = /^fill\.stops\[(0|[1-9]\d*)\]\.color$/.exec(property);
   if (stop)
