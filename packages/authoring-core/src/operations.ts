@@ -3313,6 +3313,8 @@ export function applyAuthoringOperations(
           for (const layer of layers) removeEffect(layer, operation.effectId);
         } else {
           const shared = new Set(operation.effectIds);
+          if (shared.size !== operation.effectIds.length)
+            throw new Error('Reorder must include each supplied effect ID exactly once.');
           for (const layer of layers) {
             const stack = getEffectStack(layer.effects),
               queue = operation.effectIds.map((effectId) =>

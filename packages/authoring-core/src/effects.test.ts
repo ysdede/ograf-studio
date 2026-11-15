@@ -95,3 +95,47 @@ it('authors a post-process shader effect with editable source and incoming iChan
     revised.project.compositions[0]!.layers[0]!.effects.stack!.at(-1)!.shader?.fragmentSource,
   ).toContain('1.0 - s.rgb');
 });
+
+it('rejects a reorder that repeats an effect id without committing', () => {
+  const session = new AuthoringSession(createProject());
+  session.apply({
+    expectedRevision: 0,
+    operations: [{ type: 'add_layer', kind: 'rectangle', name: 'A' }],
+  });
+  const layers = session.snapshot().project.compositions[0]!.layers;
+  const [a] = layers;
+  const grouped = session.apply({
+    expectedRevision: session.revision,
+    operations: [
+      { type: 'add_effect', layerId: a!.id, effectType: 'glow', patch: { name: 'One' } },
+    ],
+  });
+  const stack = grouped.project.compositions[0]!.layers.find((layer) => layer.id === a!.id)!.effects
+    .stack!;
+  const ids = stack.map((effect) => effect.id);
+  const before = session.snapshot();
+
+  for (const effectIds of [
+    [...ids, ids[0]!],
+    [ids[0]!, ids[0]!],
+  ]) {
+    expect(() =>
+      session.apply({
+        expectedRevision: before.revision,
+        operations: [{ type: 'reorder_effects', layerId: a!.id, effectIds }],
+      }),
+    ).toThrow(/each supplied effect ID exactly once/);
+    expect(session.revision).toBe(before.revision);
+    expect(session.snapshot().project).toEqual(before.project);
+  }
+
+  const reordered = session.apply({
+    expectedRevision: before.revision,
+    operations: [{ type: 'reorder_effects', layerId: a!.id, effectIds: [...ids].reverse() }],
+  });
+  expect(
+    reordered.project.compositions[0]!.layers.find(
+      (layer) => layer.id === a!.id,
+    )!.effects.stack!.map((effect) => effect.id),
+  ).toEqual([...ids].reverse());
+});
