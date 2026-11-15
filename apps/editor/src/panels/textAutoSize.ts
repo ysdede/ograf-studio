@@ -17,6 +17,7 @@ export function measureAutoSizedText(element: TextElement): { width: number; hei
     fontFamily: element.fontFamily,
     fontSize: `${Math.max(1, element.fontSize)}px`,
     fontWeight: String(element.fontWeight),
+    fontVariantNumeric: element.fontVariantNumeric ?? 'normal',
     webkitTextStrokeColor: element.strokeColor,
     webkitTextStrokeWidth: `${Math.max(0, element.strokeWidth)}px`,
     paintOrder: 'stroke fill',

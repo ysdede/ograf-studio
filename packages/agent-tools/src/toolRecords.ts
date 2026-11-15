@@ -2649,6 +2649,11 @@ export function createOGrafToolRecords(
               description:
                 'Unicode text layout direction for text and clock layers. Set direction in add_layer.element or update_element.patch. textDirection is an accepted input alias; direction takes precedence if both are supplied.',
             },
+            fontVariantNumeric: {
+              type: 'enum',
+              values: ['normal', 'tabular-nums', 'proportional-nums'],
+              default: 'normal',
+            },
             textAlign: {
               type: 'enum',
               values: ['left', 'center', 'right'],

@@ -172,7 +172,7 @@ function elementSvg(
         );
         const scaleX = width / naturalWidth;
         const scaleY = height / Math.max(1, blockHeight + element.strokeWidth);
-        return `${paintDefs}<g transform="scale(${scaleX} ${scaleY})"><text x="0" y="${element.fontSize + element.baselineShift}" fill="${paint.fill}" stroke="${element.strokeWidth > 0 ? escapeXml(element.strokeColor) : 'none'}" stroke-width="${element.strokeWidth}" paint-order="stroke fill" font-family="${escapeXml(element.fontFamily)}" font-size="${element.fontSize}" font-weight="${element.fontWeight}" letter-spacing="${element.letterSpacing}" text-anchor="start">${lines.map((line, index) => `<tspan x="0" dy="${index === 0 ? 0 : element.fontSize * element.lineHeight}">${escapeXml(line)}</tspan>`).join('')}</text></g>`;
+        return `${paintDefs}<g transform="scale(${scaleX} ${scaleY})"><text x="0" y="${element.fontSize + element.baselineShift}" fill="${paint.fill}" stroke="${element.strokeWidth > 0 ? escapeXml(element.strokeColor) : 'none'}" stroke-width="${element.strokeWidth}" paint-order="stroke fill" font-family="${escapeXml(element.fontFamily)}" font-size="${element.fontSize}" font-weight="${element.fontWeight}" ${element.fontVariantNumeric && element.fontVariantNumeric !== 'normal' ? `style="font-variant-numeric:${element.fontVariantNumeric}" ` : ''}letter-spacing="${element.letterSpacing}" text-anchor="start">${lines.map((line, index) => `<tspan x="0" dy="${index === 0 ? 0 : element.fontSize * element.lineHeight}">${escapeXml(line)}</tspan>`).join('')}</text></g>`;
       }
       const verticalOffset =
         element.verticalAlign === 'middle'
@@ -180,7 +180,7 @@ function elementSvg(
           : element.verticalAlign === 'bottom'
             ? Math.max(0, height - blockHeight)
             : 0;
-      return `${paintDefs}<text x="${x}" y="${verticalOffset + element.baselineShift + element.fontSize}" fill="${paint.fill}" stroke="${element.strokeWidth > 0 ? escapeXml(element.strokeColor) : 'none'}" stroke-width="${element.strokeWidth}" paint-order="stroke fill" font-family="${escapeXml(element.fontFamily)}" font-size="${element.fontSize}" font-weight="${element.fontWeight}" letter-spacing="${element.letterSpacing}" text-anchor="${anchor}">${lines.map((line, index) => `<tspan x="${x}" dy="${index === 0 ? 0 : element.fontSize * element.lineHeight}">${escapeXml(line)}</tspan>`).join('')}</text>`;
+      return `${paintDefs}<text x="${x}" y="${verticalOffset + element.baselineShift + element.fontSize}" fill="${paint.fill}" stroke="${element.strokeWidth > 0 ? escapeXml(element.strokeColor) : 'none'}" stroke-width="${element.strokeWidth}" paint-order="stroke fill" font-family="${escapeXml(element.fontFamily)}" font-size="${element.fontSize}" font-weight="${element.fontWeight}" ${element.fontVariantNumeric && element.fontVariantNumeric !== 'normal' ? `style="font-variant-numeric:${element.fontVariantNumeric}" ` : ''}letter-spacing="${element.letterSpacing}" text-anchor="${anchor}">${lines.map((line, index) => `<tspan x="${x}" dy="${index === 0 ? 0 : element.fontSize * element.lineHeight}">${escapeXml(line)}</tspan>`).join('')}</text>`;
     }
     case 'image':
       return element.src

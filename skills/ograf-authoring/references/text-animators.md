@@ -52,3 +52,7 @@ For a text box with `overflowPolicy: "clip"`, set `clipMarginX` and `clipMarginY
 `update_element` patch. Each value expands both edges of its axis by 0–512 composition pixels.
 A nonzero margin on Auto Size text follows the measured box of the current bound text. Keep both
 values at zero to use the original clip. Verify short and long data values in the exported graphic.
+
+## Numeric figures
+
+Native text exposes static `fontVariantNumeric`: `normal` (font default), `tabular-nums` or `proportional-nums`. Set it through `add_layer.element` or `update_element.patch`; omission means `normal`. It is not an animation track or data-binding target, and shader or media text paint cannot preserve it. Use exact packaged fonts: a requested variant does not prove the font supplies distinct figures.

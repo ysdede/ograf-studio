@@ -439,6 +439,9 @@ export interface TextCrawl {
   direction: 'left' | 'right';
 }
 
+/** CSS numeric glyph shaping: `tabular-nums` keeps digit advances equal for readouts. */
+export type FontVariantNumeric = 'normal' | 'tabular-nums' | 'proportional-nums';
+
 export interface TextElement {
   type: 'text';
   content: string;
@@ -454,6 +457,8 @@ export interface TextElement {
   fontFamily: string;
   fontSize: number;
   fontWeight: number;
+  /** Static CSS numeric glyph shaping; independent of rich TextRuns and TextAnimation. Absent means normal. */
+  fontVariantNumeric?: FontVariantNumeric;
   textAlign: 'left' | 'center' | 'right';
   /** Unitless line-height multiplier retained across font-size changes. */
   lineHeight: number;

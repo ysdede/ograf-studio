@@ -792,6 +792,7 @@ export function renderElementContent(
         content.style.fontFamily = element.fontFamily;
         content.style.fontSize = `${element.fontSize}px`;
         content.style.fontWeight = String(element.fontWeight);
+        content.style.fontVariantNumeric = element.fontVariantNumeric ?? 'normal';
         content.style.textAlign = element.textAlign;
         content.style.letterSpacing = `${element.letterSpacing}px`;
         content.style.textTransform = element.textTransform;

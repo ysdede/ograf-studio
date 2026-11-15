@@ -186,6 +186,31 @@ import type { AuthoringChangeSummary, AuthoringOperation } from './types';
 
 const clone = <T>(value: T): T => structuredClone(value);
 
+function assertTextNumericVariant(
+  element: Layer['element'],
+  patch?: Record<string, unknown>,
+): void {
+  const variant = patch ? patch.fontVariantNumeric : undefined;
+  if (
+    variant !== undefined &&
+    (typeof variant !== 'string' ||
+      element.type !== 'text' ||
+      !new Set(['normal', 'tabular-nums', 'proportional-nums']).has(variant))
+  ) {
+    throw new Error('Text fontVariantNumeric must be normal, tabular-nums, or proportional-nums.');
+  }
+  if (
+    element.type === 'text' &&
+    element.fontVariantNumeric !== undefined &&
+    element.fontVariantNumeric !== 'normal' &&
+    (getElementShaderPaints(element).length > 0 || isMediaPaint(element.fill))
+  ) {
+    throw new Error(
+      'Canvas-masked text paint (shader or media) cannot preserve non-normal fontVariantNumeric; use normal or omit fontVariantNumeric.',
+    );
+  }
+}
+
 function compositionFor(project: Project, compositionId?: string): Composition {
   const id = compositionId ?? project.mainCompositionId;
   const composition = project.compositions.find((candidate) => candidate.id === id);
@@ -762,6 +787,10 @@ function addLayer(
     }
     if (layer.element.type === 'chart' && elementPatch.data !== undefined)
       elementPatch.data = parseChartData(elementPatch.data);
+    assertTextNumericVariant(
+      { ...layer.element, ...elementPatch } as Layer['element'],
+      elementPatch,
+    );
     Object.assign(layer.element, elementPatch);
     if (layer.element.type === 'text') {
       const errors = textAnimatorPaintErrors(layer.element);
@@ -3042,6 +3071,10 @@ export function applyAuthoringOperations(
             : layer.element.content;
           if (String(elementPatch.content) !== authoredText) elementPatch.runs = [];
         }
+        assertTextNumericVariant(
+          { ...layer.element, ...elementPatch } as Layer['element'],
+          elementPatch,
+        );
         Object.assign(layer.element, elementPatch);
         if (layer.element.type === 'text') {
           const errors = textAnimatorPaintErrors(layer.element);
