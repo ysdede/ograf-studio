@@ -191,16 +191,24 @@ global counter reads `[1,2]` across two calls instead of `[1,1]`), the in-page C
 `iClock` (realtime/deterministic boundary), the pin bridge (ownership), base-paint cache and binding batching (no stable gain
 alone). Part 1's six commits are new and have not been reviewed upstream.
 
-## Not carried from the older yd-zd `dev` line (0.23)
+## Ported from the older yd-zd `dev` line (0.23)
 
-That line took features that zerodensity later implemented in its own way. Three are known missing here (the Toolkit's tests
-fail on them): the box-shadow effect stage, effect bounds and text direction values.
+That line took features that zerodensity later implemented in its own way or not at all. The Toolkit's tests named the ones
+still missing on 0.34; two commits close them:
+
+| Commit    | What                                                                                                                                                              | Why it was valid                                                                                                                                                      |
+| --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `b432b5b` | The shared element patch schema accepts text `direction` `auto`, `ltr`, `rtl` (tickers keep `left`, `right`), and effect token paths include `blur` and `spread`. | 0.34's scene model already has text direction, but MCP `apply_operations` rejected it with "expected one of left, right".                                             |
+| `f6aea5a` | A CSS `box-shadow` effect stage: offset, blur, spread, color, opacity, following the layer's border box and corner radii; one per layer, first in the stack.      | `drop-shadow` shadows painted pixels and has no spread; recipes and the Toolkit's effect bounds expect the native stage. Adjusted to sit beside 0.34's backdrop blur. |
+
+With both, the Toolkit's suite has no failing feature tests on this branch; what fails is only its source lock, which follows
+any Studio change and is refreshed with the Toolkit's `snapshot`.
 
 ## Check it
 
 ```sh
 npm ci
 npm run build --workspace @ograf-editor/ograf-runtime
-npx vitest run            # 5 537 tests on this branch
+npx vitest run            # 5 560 tests on this branch
 npm run typecheck --workspaces --if-present
 ```
