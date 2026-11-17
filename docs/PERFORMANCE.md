@@ -143,6 +143,11 @@ Each of these made the packages slower with **any** Studio version:
 4. **Rules are not free.** Each data rule is evaluated at every take; 1 072 rules in a lower-third set is a lot. Prefer
    bindings and value maps for plain data-to-property mapping; keep rules for logic.
 5. **One font file per family** across the templates of a set, and subset large fonts to the characters used.
+6. **One shader, not one per element.** Each shader layer is a WebGL context and a full-screen pass. Graphics that draw many
+   instruments (the Seat, Cyclorama and QA HUDs) put them in one full-frame shader with a fixed slot each, and move small
+   elements with a cropped `drawImage` instead of another context.
+7. **Mind the context limit.** Browsers keep about 16 live WebGL contexts; past that the oldest is lost. Use one background
+   for a grid of cards rather than one per card, and release contexts you drop (`WEBGL_lose_context`).
 
 ---
 
