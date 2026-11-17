@@ -14,5 +14,13 @@ export default defineConfig({
     outDir: 'dist',
     emptyOutDir: true,
     minify: false,
+    rolldownOptions: {
+      output: {
+        // Every package carries this runtime; unminified it was 1.6 MB of each main.js. Drop
+        // whitespace and comments only: names stay, because worker and sandbox kernels are
+        // shipped as Function source (fn.toString()) and renamed outer names break them.
+        minify: { compress: false, mangle: false, codegen: { removeWhitespace: true } },
+      },
+    },
   },
 });
