@@ -1169,6 +1169,33 @@ describe('coordinated package resources', () => {
     ).toMatchObject({ src: `https://renderer.example/package/${path}` });
   });
 
+  it('ships one copy of a font every template packages and resolves each template to it', () => {
+    const input = newsInput();
+    for (const template of input.templates.slice(0, 2))
+      template.project.compositions[0]!.assets.push(
+        createAsset({
+          kind: 'font',
+          name: 'News.woff2',
+          fontFamily: 'News',
+          mimeType: 'font/woff2',
+          dataUri: 'data:font/woff2;base64,AAAA',
+        }),
+      );
+    const result = buildCoordinatedExportArtifactsWithRuntime(input, runtimeStub);
+    expect(result.errors).toEqual([]);
+    const copies = result.resources.filter((resource) => resource.data === 'AAAA');
+    expect(copies).toHaveLength(1);
+    const Graphic = evaluateResourceWrapper(
+      result.mainJs,
+      'https://renderer.example/package/main.js',
+    );
+    const shipped = `https://renderer.example/package/${copies[0]!.path}`;
+    const sources = Graphic.transitionDescriptor.templates
+      .slice(0, 2)
+      .map((template) => template.descriptor.fonts?.find((font) => font.family === 'News')?.source);
+    expect(sources).toEqual([shipped, shipped]);
+  });
+
   it('uses exact blob resource maps and refuses missing bytes', () => {
     const { input, path } = resourcesInput();
     const result = buildCoordinatedExportArtifactsWithRuntime(input, runtimeStub);

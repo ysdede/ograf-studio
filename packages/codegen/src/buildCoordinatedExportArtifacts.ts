@@ -945,20 +945,23 @@ export function generateCoordinatedMainJs(
   runtimeSource: string,
   resourcePaths: readonly string[],
   dataPaths: DataResourcePaths = { templates: {}, shared: {} },
+  resourceAliases: Readonly<Record<string, string>> = {},
 ): string {
   return `${STUDIO_RUNTIME_NOTICE}
 ${runtimeSource}
 const exportedModuleBaseUrl = import.meta.url;
 const exportedResourcePaths = new Set(${JSON.stringify(resourcePaths)});
+const exportedResourceAliases = ${JSON.stringify(resourceAliases)};
 function exportedResourceValue(value) {
-  if (typeof value === 'string' && exportedResourcePaths.has(value)) {
+  const path = typeof value === 'string' && Object.hasOwn(exportedResourceAliases, value) ? exportedResourceAliases[value] : value;
+  if (typeof path === 'string' && exportedResourcePaths.has(path)) {
     if (exportedModuleBaseUrl.startsWith('blob:')) {
-      const url = globalThis[${JSON.stringify(EXPORTED_RESOURCE_URLS_KEY)}]?.[exportedModuleBaseUrl]?.[value];
-      if (!url) throw new Error('Packaged resource is unavailable in the blob module: ' + value);
+      const url = globalThis[${JSON.stringify(EXPORTED_RESOURCE_URLS_KEY)}]?.[exportedModuleBaseUrl]?.[path];
+      if (!url) throw new Error('Packaged resource is unavailable in the blob module: ' + path);
       return url;
     }
     // Archive entries are literal filenames, so #, ?, and % are not URL syntax.
-    return new URL(value.split('/').map(encodeURIComponent).join('/'), exportedModuleBaseUrl).href;
+    return new URL(path.split('/').map(encodeURIComponent).join('/'), exportedModuleBaseUrl).href;
   }
   return value;
 }
@@ -1118,6 +1121,28 @@ export function buildCoordinatedExportArtifactsWithRuntime(
       projectErrors.push(`${label}: packaged resources disagree at "${resource.path}".`);
     else resources.set(resource.path, resource);
   }
+  // Every template and shared component packages its own copy of a font or image it shares with
+  // others (one coordinated export carried the same 876 KB font thirteen times). Ship the first
+  // copy of identical bytes only; the module resolves a later namespace's path to it. References
+  // and text stay as compiled, so nothing but resource resolution changes.
+  const pathByContent = new Map<string, string>();
+  const resourceAliases: Record<string, string> = {};
+  function shareIdenticalResources(packaged: PackagedComposition): PackagedComposition {
+    const resourcesKept: PackagedComposition['resources'] = [];
+    for (const resource of packaged.resources) {
+      const key = `${resource.base64 ? 'b' : 't'}:${resource.mimeType ?? ''}:${resource.data}`;
+      const existing = pathByContent.get(key);
+      if (existing && existing !== resource.path && !resource.path.includes('licenses/')) {
+        resourceAliases[resource.path] = existing;
+        continue;
+      }
+      if (!existing) pathByContent.set(key, resource.path);
+      resourcesKept.push(resource);
+    }
+    return resourcesKept.length === packaged.resources.length
+      ? packaged
+      : { ...packaged, resources: resourcesKept };
+  }
   const manifests: OGrafManifest[] = [];
   const fontOrigins = new Map<string, { source: string; label: string }>();
   function compile(
@@ -1150,12 +1175,14 @@ export function buildCoordinatedExportArtifactsWithRuntime(
         );
       else fontOrigins.set(key, { source: asset.dataUri, label });
     }
-    const packaged = packageDescriptorResources(
-      composition,
-      compileDescriptor(composition),
-      namespace,
+    const packaged = shareIdenticalResources(
+      packageDescriptorResources(composition, compileDescriptor(composition), namespace),
     );
-    const availablePaths = new Set(packaged.resources.map((resource) => resource.path));
+    // A shared copy lives under the namespace that packaged it first.
+    const availablePaths = new Set([
+      ...packaged.resources.map((resource) => resource.path),
+      ...Object.keys(resourceAliases),
+    ]);
     for (const value of resourceValues(packaged))
       if (!availablePaths.has(value) && !/^(https?:|data:)/i.test(value))
         projectErrors.push(
@@ -1825,14 +1852,20 @@ export function buildCoordinatedExportArtifactsWithRuntime(
     ),
     manifest,
     manifestFileName: `${manifest.id}.ograf.json`,
-    mainJs: generateCoordinatedMainJs(transitionDescriptor, runtimeSource, [...resources.keys()], {
-      templates: Object.fromEntries(
-        [...packagedTemplates].map(([id, packaged]) => [id, dataResourcePaths(packaged)]),
-      ),
-      shared: Object.fromEntries(
-        [...packagedShared].map(([id, packaged]) => [id, dataResourcePaths(packaged)]),
-      ),
-    }),
+    mainJs: generateCoordinatedMainJs(
+      transitionDescriptor,
+      runtimeSource,
+      [...resources.keys()],
+      {
+        templates: Object.fromEntries(
+          [...packagedTemplates].map(([id, packaged]) => [id, dataResourcePaths(packaged)]),
+        ),
+        shared: Object.fromEntries(
+          [...packagedShared].map(([id, packaged]) => [id, dataResourcePaths(packaged)]),
+        ),
+      },
+      resourceAliases,
+    ),
     resources: [...resources.values()],
     projectErrors,
     manifestErrors,
