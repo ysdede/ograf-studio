@@ -276,6 +276,73 @@ describe('gradient glyph clipping across paint sampling', () => {
     disposeElementContent(dom(host));
   });
 
+  it('leaves box checks to the ResizeObserver while an animated stroke holds its width', () => {
+    const observed: Array<() => void> = [];
+    const previousObserver = globalThis.ResizeObserver;
+    globalThis.ResizeObserver = class {
+      constructor(callback: () => void) {
+        observed.push(callback);
+      }
+      observe() {}
+      disconnect() {}
+      unobserve() {}
+    } as unknown as typeof ResizeObserver;
+    try {
+      Object.assign(document, {
+        body: document.createElement('div'),
+        createRange: () => {
+          let target: FakeElement;
+          return {
+            selectNodeContents(node: FakeElement) {
+              target = node;
+            },
+            getBoundingClientRect() {
+              const size = Number.parseFloat(target.style.fontSize);
+              return { width: size * 10, height: size };
+            },
+            detach() {},
+          };
+        },
+      });
+      const host = document.createElement('div');
+      let width = 1000;
+      let boxReads = 0;
+      Object.defineProperty(host, 'clientWidth', {
+        get: () => (boxReads++, width),
+        configurable: true,
+      });
+      renderElementContent(
+        dom(host),
+        createTextElement({ content: 'Headline', autoFit: 'fit-to-width', fontSize: 40 }),
+      );
+      expect(observed).toHaveLength(1);
+      const held: LayerAnimationTracks = {
+        strokeWidth: [{ id: 'held', frame: 0, value: 2, easing: 'linear' }],
+      };
+      applyAnimatedPaint(dom(host), held, 0);
+      const afterFirst = boxReads;
+      for (let frame = 1; frame < 120; frame++) applyAnimatedPaint(dom(host), held, frame);
+      // No forced layout per frame while the stroke holds.
+      expect(boxReads).toBe(afterFirst);
+      const firstFont = Number(host.firstElementChild!.dataset.ografAppliedFontSize);
+      // A resize arrives through the observer and still refits.
+      width = 100;
+      observed[0]!();
+      expect(Number(host.firstElementChild!.dataset.ografAppliedFontSize)).toBeLessThan(firstFont);
+      // A changed stroke width refits from the paint path.
+      const reads = boxReads;
+      applyAnimatedPaint(
+        dom(host),
+        { strokeWidth: [{ id: 'wide', frame: 0, value: 6, easing: 'linear' }] },
+        120,
+      );
+      expect(boxReads).toBeGreaterThan(reads);
+      disposeElementContent(dom(host));
+    } finally {
+      globalThis.ResizeObserver = previousObserver;
+    }
+  });
+
   it('invalidates fitted text measurement when fonts finish loading with unchanged box geometry', async () => {
     const measure = vi.fn();
     const listeners = new Map<string, () => void>();

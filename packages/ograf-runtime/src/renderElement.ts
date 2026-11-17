@@ -602,16 +602,19 @@ export function applyAnimatedPaint(
   const strokeTrack = tracks.strokeWidth ?? [];
   if (strokeTrack.length > 0) {
     const fallback = strokeTrack[0]?.value ?? 0;
-    content.style.webkitTextStrokeWidth = `${Math.max(
-      0,
-      getTrackValueAtFrame(strokeTrack, frame, fallback),
-    )}px`;
+    const strokeWidth = `${Math.max(0, getTrackValueAtFrame(strokeTrack, frame, fallback))}px`;
+    // The fit reads the box size, a forced layout right after these writes; a held or constant
+    // stroke track forced one per text layer per frame. Where a ResizeObserver watches the box it
+    // reports size changes itself, so re-fit here only when the stroke width changed.
+    const strokeChanged =
+      content.style.webkitTextStrokeWidth !== strokeWidth || !textFits.get(renderHost)?.observer;
+    content.style.webkitTextStrokeWidth = strokeWidth;
     content.style.paintOrder = 'stroke fill';
     for (const copy of textCrawlPaintTargets(renderHost) ?? []) {
       copy.style.webkitTextStrokeWidth = content.style.webkitTextStrokeWidth;
       copy.style.paintOrder = 'stroke fill';
     }
-    textFitCallbacks.get(renderHost)?.();
+    if (strokeChanged) textFitCallbacks.get(renderHost)?.();
   }
 }
 
