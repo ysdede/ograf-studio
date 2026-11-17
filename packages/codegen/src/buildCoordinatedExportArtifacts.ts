@@ -1015,6 +1015,9 @@ function exportedPrepareDescriptor(descriptor) {
       for (const binding of layer.bindings ?? (layer.binding ? [layer.binding] : []))
         if (binding.targetProperty === 'src' && binding.valueMap)
           binding.valueMap = Object.fromEntries(Object.entries(binding.valueMap).map(([key, value]) => [key, exportedResourceValue(value)]));
+    for (const rule of layer.visualRules ?? [])
+      for (const action of rule.actions ?? [])
+        if (action.type === 'property' && action.targetProperty === 'src' && typeof action.value === 'string') action.value = exportedResourceValue(action.value);
   }
   for (const font of descriptor.fonts ?? []) font.source = exportedResourceValue(font.source);
   for (const plugin of descriptor.rendererPlugins ?? []) if (plugin.moduleUrl) plugin.moduleUrl = exportedResourceValue(plugin.moduleUrl);

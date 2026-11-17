@@ -3,7 +3,9 @@ import {
   createAsset,
   createComposition,
   createImageLayer,
+  createFieldDefinition,
   createLayerOfKind,
+  createLayerVisualRule,
   createMediaPaint,
   createMediaCue,
   createProject,
@@ -207,6 +209,53 @@ describe('exported package resource resolution', () => {
       mimeType: 'image/svg+xml',
     });
     expect(artifacts.mainJs).toContain('artwork/custom.resource');
+  });
+
+  it('packages an image a visual rule swaps in and resolves it against the module URL', () => {
+    const project = createProject();
+    const composition = project.compositions[0]!;
+    const photo = createAsset({
+      id: 'photo',
+      name: 'Photo',
+      mimeType: 'image/png',
+      dataUri: 'data:image/png;base64,UEhPVE8=',
+    });
+    composition.assets.push(photo);
+    const status = createFieldDefinition('text', { id: 'field-status', key: 'status' });
+    composition.dataFields.push(status);
+    const image = createImageLayer();
+    if (image.element.type !== 'image') throw new Error('Expected image');
+    image.visualRules = [
+      createLayerVisualRule({
+        id: 'swap',
+        name: 'Swap photo',
+        trigger: 'data',
+        fieldId: status.id,
+        operator: 'equals',
+        value: 'LIVE',
+        actions: [{ type: 'property', targetProperty: 'src', value: photo.dataUri }],
+      }),
+    ];
+    composition.layers.push(image);
+    const artifacts = buildExportArtifactsWithRuntime(project, composition, runtime);
+    expect(artifacts.resources).toContainEqual({
+      path: 'assets/photo.png',
+      data: 'UEhPVE8=',
+      base64: true,
+      mimeType: 'image/png',
+    });
+    expect(artifacts.mainJs).not.toContain('UEhPVE8=');
+    const source = artifacts.mainJs
+      .replaceAll('import.meta.url', JSON.stringify('https://renderer.example/package/main.js'))
+      .replace('export default ExportedGraphic;', 'return ExportedGraphic;')
+      .replace(/^\/\*[\s\S]*?\*\//, '');
+    const Graphic = new Function(source)() as { descriptor: CompiledGraphicDescriptor };
+    const action = Graphic.descriptor.layers.at(-1)!.visualRules![0]!.actions[0]!;
+    expect(action).toMatchObject({
+      type: 'property',
+      targetProperty: 'src',
+      value: 'https://renderer.example/package/assets/photo.png',
+    });
   });
 
   it('packages media paint clips once and resolves them relative to normal and blob modules', () => {

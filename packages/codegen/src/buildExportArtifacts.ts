@@ -157,6 +157,10 @@ for (const layer of exportedLayers) {
   } else if (layer.element.type === 'image-sequence') {
     layer.element.frames = layer.element.frames.map(exportedResourceUrl);
   }
+  for (const rule of layer.visualRules ?? [])
+    for (const action of rule.actions ?? [])
+      if (action.type === 'property' && action.targetProperty === 'src' && typeof action.value === 'string')
+        action.value = exportedResourceUrl(action.value);
 }
 for (const font of exportedDescriptor.fonts ?? []) {
   if (font.source && !/^[a-z][a-z0-9+.-]*:/i.test(font.source)) {
@@ -408,6 +412,17 @@ export function packageDescriptorResources(
     } else if (layer.element.type === 'image-sequence') {
       layer.element.frames = layer.element.frames.map(packageUri);
     }
+    // A rule that swaps an image carried it as an inline data URI inside main.js, next to the
+    // packaged file (a 5.2 MB photo became 7 MB of JavaScript string). Package it like a binding.
+    for (const rule of layer.visualRules ?? [])
+      for (const action of rule.actions ?? [])
+        if (
+          action.type === 'property' &&
+          action.targetProperty === 'src' &&
+          typeof action.value === 'string' &&
+          action.value.startsWith('data:')
+        )
+          action.value = packageUri(action.value);
   }
   for (const cue of packaged.mediaCues ?? []) {
     cue.sources = cue.sources.map((source) =>
