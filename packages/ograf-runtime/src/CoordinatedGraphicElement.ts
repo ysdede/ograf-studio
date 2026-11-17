@@ -937,12 +937,18 @@ export abstract class CoordinatedGraphicElement extends HTMLElement implements G
     const generation = this.#generation;
     this.#drainingRules = true;
     let count = 0;
+    // Render once per drained frame, and before an action runs, instead of after every queued rule:
+    // rules without actions re-rendered every instance at the same frame, hundreds of times at a take.
+    let dirty = false;
     try {
       for (;;) {
         this.#assertLive(generation);
         this.#ruleWork.sort((a, b) => a.frame - b.frame || a.order - b.order);
         const work = this.#ruleWork[0];
-        if (!work || work.frame > until) return;
+        if (!work || work.frame > until) {
+          if (dirty) this.#render(this.#frame);
+          return;
+        }
         this.#ruleWork.shift();
         if (++count > MAX_PENDING_RULES) throw new Error('Rules playout event limit exceeded.');
         const caused = <T>(operation: () => T): T => {
@@ -958,6 +964,10 @@ export abstract class CoordinatedGraphicElement extends HTMLElement implements G
           }
         };
         const actions = caused(() => work.run());
+        if (actions.length && dirty) {
+          this.#render(this.#frame);
+          dirty = false;
+        }
         for (const action of actions) {
           // Local set-data/custom-action rules can synchronously enqueue further work, too.
           // Release the causal scope before awaiting resources so unrelated commands stay independent.
@@ -967,7 +977,7 @@ export abstract class CoordinatedGraphicElement extends HTMLElement implements G
           if (result.statusCode !== 200)
             throw new Error(result.statusMessage ?? 'A Rules playout action failed.');
         }
-        this.#render(this.#frame);
+        dirty = true;
         if (this.#renderType === 'realtime') until = this.#frame;
       }
     } finally {

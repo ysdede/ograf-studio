@@ -630,6 +630,26 @@ describe('in-place coordinated live data patches', () => {
     expect(local.disposed).toBe(false);
   });
 
+  it('renders a drained frame once when its queued rules produce no actions', async () => {
+    const graphic = await create();
+    await take(graphic, 'headline', { headline: 'Before' }, true);
+    await tick(5);
+    const local = visible()[0]!;
+    const runs = Array.from({ length: 40 }, () => vi.fn(() => []));
+    local.setData.mockImplementationOnce((data: Record<string, unknown>) => {
+      local.data = structuredClone(data);
+      runs.forEach((run, index) =>
+        local.scheduleRule!({ id: `quiet-${index}`, frame: 5, data, run }),
+      );
+    });
+    const renders = local.render.mock.calls.length;
+    expect(await patch(graphic, { headline: 'Rule input' })).toEqual({ statusCode: 200 });
+    await flush();
+    for (const run of runs) expect(run).toHaveBeenCalledTimes(1);
+    // The patch renders the frame and the drain renders it once more, not once per rule.
+    expect(local.render.mock.calls.length - renders).toBeLessThanOrEqual(2);
+  });
+
   it('records sparse patches and replays them identically across backward seeks', async () => {
     const graphic = await create();
     await take(graphic, 'headline', { headline: 'Before', keep: 42 }, true);
