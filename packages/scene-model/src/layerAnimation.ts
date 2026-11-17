@@ -510,12 +510,26 @@ export function getLayerPropertyValueAtFrame(
   return getTrackValueAtFrame(keyframes, frame, staticPropertyValue(layer, property));
 }
 
+// Sampling ran a copy-and-sort (with localeCompare) on every property of every layer per frame.
+// Tracks are replaced, not edited in place, when a document changes; the length check also
+// catches an in-place insert or removal.
+const sortedTrackCache = new WeakMap<LayerPropertyKeyframe[], LayerPropertyKeyframe[]>();
+
+function sortedTrack(keyframes: LayerPropertyKeyframe[]): LayerPropertyKeyframe[] {
+  let sorted = sortedTrackCache.get(keyframes);
+  if (!sorted || sorted.length !== keyframes.length) {
+    sorted = sortLayerPropertyKeyframes(keyframes);
+    sortedTrackCache.set(keyframes, sorted);
+  }
+  return sorted;
+}
+
 export function getTrackValueAtFrame(
   keyframes: LayerPropertyKeyframe[],
   frame: number,
   fallback: number,
 ): number {
-  const sorted = sortLayerPropertyKeyframes(keyframes);
+  const sorted = sortedTrack(keyframes);
   const first = sorted[0];
   if (!first) return fallback;
   if (frame <= first.frame) return first.value;

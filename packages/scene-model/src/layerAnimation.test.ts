@@ -16,6 +16,7 @@ import {
   getLayerPropertyValueAtFrame,
   getPaintAtFrame,
   getResolvedLayerAnimationTracks,
+  getTrackValueAtFrame,
   isLayerPropertyAnimated,
   findLayerPropertyKeyframeAtFrame,
   TRANSFORM_ANIMATION_PROPERTIES,
@@ -280,5 +281,25 @@ describe('independent layer animation', () => {
     expect(getLayerAnimatableProperties(text)).toContain('strokeWidth');
     expect(getLayerPropertyValueAtFrame(text, 'strokeWidth', 5)).toBe(4);
     expect(getLayerAnimatableProperties(image)).not.toContain('strokeWidth');
+  });
+
+  it('samples an unsorted track in frame order on every call, also after the track changes', () => {
+    const track = [
+      createLayerPropertyKeyframe(20, 40),
+      createLayerPropertyKeyframe(0, 0),
+      createLayerPropertyKeyframe(10, 10),
+    ];
+    for (let pass = 0; pass < 3; pass += 1) {
+      expect(getTrackValueAtFrame(track, 5, -1)).toBe(5);
+      expect(getTrackValueAtFrame(track, 15, -1)).toBe(25);
+      expect(getTrackValueAtFrame(track, 30, -1)).toBe(40);
+    }
+    // An in-place insert must not reuse the cached order.
+    track.push(createLayerPropertyKeyframe(30, 100));
+    expect(getTrackValueAtFrame(track, 25, -1)).toBe(70);
+    // A replaced track is sampled from its own keys.
+    const replaced = [createLayerPropertyKeyframe(10, 1), createLayerPropertyKeyframe(0, 3)];
+    expect(getTrackValueAtFrame(replaced, 5, -1)).toBe(2);
+    expect(getTrackValueAtFrame([], 5, -1)).toBe(-1);
   });
 });
