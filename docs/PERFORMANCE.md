@@ -202,7 +202,8 @@ adapted from `cabc539`): all six of Part 1 plus `31d4f2c`, `e818fd2`, `f400383`,
 also resolves rule images in Preview. 0.40 adds a `gpuWork: 'submitted' | 'completed'` option to
 `waitForElementContentReady`, so on this branch `71d9d05` uses `'submitted'` for realtime updates instead of its own
 `shaderPixels` flag. 0.40 also has text direction (`f7bfe4c`), so only the `blur`/`spread` effect paths and the tests are
-left of `b432b5b`. The other commits in this file are still fork-only.
+left of `b432b5b`. The other commits in this file are still fork-only; [REALTIME-DATA-PATH.md](REALTIME-DATA-PATH.md)
+covers each of them with its reason, measurement, risk and a suggested order for upstream.
 
 ## Ported from the older yd-zd `dev` line (0.23)
 
