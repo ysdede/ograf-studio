@@ -1,6 +1,7 @@
 # Playback performance: what was slow, why, and what this fork changes
 
-This branch is `zerodensity/ograf-studio` `dev` (0.34.0, `ce78bb9`) plus this fork's commits. Each commit is narrow, has a
+This branch is `zerodensity/ograf-studio` `dev` (0.40.0, `315ab4b`) plus this fork's commits. Hashes below name the
+commits on the 0.34 line (`perf/0.34-optimizations`, `cabc539`); "Status upstream" says which ones 0.40 already has. Each commit is narrow, has a
 test that fails without it, and says in its message what was slow and why. This file collects them with the measurements
 that led to them, so they can be reviewed and taken upstream one by one.
 
@@ -194,7 +195,14 @@ ready as narrow patches are the plain-HTTP token, the UTF-8 size check, the vali
 `clockOriginMs` as an API proposal. Held, because they change a contract or their gain did not repeat: warm realms (a
 global counter reads `[1,2]` across two calls instead of `[1,1]`), the in-page CSP fallback (isolation and timeout differ),
 `iClock` (realtime/deterministic boundary), the pin bridge (ownership), base-paint cache and binding batching (no stable gain
-alone). Part 1's six commits are new and have not been reviewed upstream.
+alone).
+
+zerodensity took 11 of these commits into 0.40 as `5257e7f` ("Optimize OGraf Studio playback and coordinated exports",
+adapted from `cabc539`): all six of Part 1 plus `31d4f2c`, `e818fd2`, `f400383`, `d6dab62`, `e071a35`. Its own `2a1f36a`
+also resolves rule images in Preview. 0.40 adds a `gpuWork: 'submitted' | 'completed'` option to
+`waitForElementContentReady`, so on this branch `71d9d05` uses `'submitted'` for realtime updates instead of its own
+`shaderPixels` flag. 0.40 also has text direction (`f7bfe4c`), so only the `blur`/`spread` effect paths and the tests are
+left of `b432b5b`. The other commits in this file are still fork-only.
 
 ## Ported from the older yd-zd `dev` line (0.23)
 
