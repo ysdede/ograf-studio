@@ -17,7 +17,8 @@ describe('subscribeNodosPins', () => {
 
   it('subscribes once per page and hands each subscriber the changes', () => {
     const page = electroNodePage();
-    const first = vi.fn(), second = vi.fn();
+    const first = vi.fn(),
+      second = vi.fn();
     subscribeNodosPins(page.view, first);
     const stop = subscribeNodosPins(page.view, second)!;
     page.send({ Track: { fov: 40n } });
@@ -50,7 +51,10 @@ describe('subscribeNodosPins', () => {
     const subscriber = vi.fn();
     subscribeNodosPins(page.view, subscriber);
     page.send({ Bad: Number.NaN, Big: 2n ** 60n, Good: [1, 'a', true, null] });
-    expect(subscriber).toHaveBeenCalledWith({ Good: [1, 'a', true, null] }, { Good: expect.any(Number) });
+    expect(subscriber).toHaveBeenCalledWith(
+      { Good: [1, 'a', true, null] },
+      { Good: expect.any(Number) },
+    );
     expect(error).toHaveBeenCalledTimes(2);
     error.mockRestore();
   });

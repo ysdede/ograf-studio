@@ -179,7 +179,9 @@ const EFFECT_BLEND_INDEX: Record<EffectBlendMode, number> = {
  * counts from playback start. Not for deterministic (seek or capture) renders.
  */
 export const SHADER_CLOCK_PERIOD_S = 4096;
-export function shaderClockSeconds(epochMs = (globalThis.performance ? performance.timeOrigin + performance.now() : Date.now())): number {
+export function shaderClockSeconds(
+  epochMs = globalThis.performance ? performance.timeOrigin + performance.now() : Date.now(),
+): number {
   return (epochMs / 1000) % SHADER_CLOCK_PERIOD_S;
 }
 
@@ -293,7 +295,9 @@ export function createShaderRenderer(
     host.closest?.('.canvas-stage-frame') ??
     (root && root.nodeType === 11 && 'host' in root ? root : null);
   const directSlot =
-    !!scope && prefersDirectContexts(scope) && (directContexts.get(scope) ?? 0) < MAX_DIRECT_CONTEXTS;
+    !!scope &&
+    prefersDirectContexts(scope) &&
+    (directContexts.get(scope) ?? 0) < MAX_DIRECT_CONTEXTS;
   let pool = scope && !directSlot ? sharedContexts.get(scope) : undefined;
   if (scope && !directSlot && !pool) {
     const surface = canvas.ownerDocument.createElement('canvas');

@@ -393,7 +393,10 @@ export function mountShaderPaintContent(
     completed: -1,
     busy: false,
     disposed: false,
-    coalesce: (container.getRootNode?.() as ShadowRoot | undefined)?.host?.hasAttribute?.(DIRECT_SHADER_ATTRIBUTE) === true,
+    coalesce:
+      (container.getRootNode?.() as ShadowRoot | undefined)?.host?.hasAttribute?.(
+        DIRECT_SHADER_ATTRIBUTE,
+      ) === true,
     dirty: false,
     flushHandle: 0,
     lastTickAt: Number.NEGATIVE_INFINITY,
@@ -516,7 +519,10 @@ export function disposeShaderPaintContent(container: HTMLElement): void {
   const mounted = mountedPaints.get(container);
   if (!mounted) return;
   mounted.disposed = true;
-  if (mounted.flushHandle) (mounted.container.ownerDocument.defaultView ?? globalThis).cancelAnimationFrame?.(mounted.flushHandle);
+  if (mounted.flushHandle)
+    (mounted.container.ownerDocument.defaultView ?? globalThis).cancelAnimationFrame?.(
+      mounted.flushHandle,
+    );
   mounted.flushHandle = 0;
   for (const entry of mounted.slots.values()) removeSlot(entry);
   mounted.slots.clear();

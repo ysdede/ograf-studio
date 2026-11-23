@@ -832,14 +832,21 @@ void mainImage(out vec4 color, in vec2 coord) {
   it('draws the updates of a realtime graphic once per frame, from the flush only while no animation tick runs', () => {
     const { canvas, gl } = mockCanvas();
     const frames: Array<() => void> = [];
-    const root = { nodeType: 11, host: { hasAttribute: (name: string) => name === 'data-ograf-direct-shaders' } };
+    const root = {
+      nodeType: 11,
+      host: { hasAttribute: (name: string) => name === 'data-ograf-direct-shaders' },
+    };
     Object.assign(canvas, { getRootNode: () => root });
     Object.assign(canvas.ownerDocument, {
-      defaultView: { requestAnimationFrame: (cb: () => void) => frames.push(cb), cancelAnimationFrame: vi.fn() },
+      defaultView: {
+        requestAnimationFrame: (cb: () => void) => frames.push(cb),
+        cancelAnimationFrame: vi.fn(),
+      },
     });
     const renderer = createShaderRenderer(canvas, parameterElement, { width: 16, height: 16 });
     const draws = () => gl.drawArrays.mock.calls.length;
-    const update = (gain: number) => renderer.updateParameters({ ...parameterElement, parameters: { gain } });
+    const update = (gain: number) =>
+      renderer.updateParameters({ ...parameterElement, parameters: { gain } });
     renderer.render(1000);
     let base = draws();
     // A static shader: two updates in a frame are one draw in the next frame, and updates in the following

@@ -33,7 +33,8 @@ const HUB_KEY = Symbol.for('ograf.runtime.nodosPins');
 function snapshot(value: unknown, depth = 0): unknown {
   if (typeof value === 'bigint') {
     const number = Number(value);
-    if (!Number.isSafeInteger(number)) throw new Error('A Nodos 64-bit integer exceeds the safe JSON range.');
+    if (!Number.isSafeInteger(number))
+      throw new Error('A Nodos 64-bit integer exceeds the safe JSON range.');
     return number;
   }
   if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
@@ -64,7 +65,8 @@ export function subscribeNodosPins(view: Window, subscriber: Subscriber): (() =>
       // Stamped before any other work: timing QA measures delivery to the page, not to the graphic.
       const at = nodosClock();
       if (!values || typeof values !== 'object' || Array.isArray(values)) return;
-      const changed: NodosPinValues = {}, receivedAt: Record<string, number> = {};
+      const changed: NodosPinValues = {},
+        receivedAt: Record<string, number> = {};
       for (const [key, value] of Object.entries(values)) {
         try {
           changed[key] = snapshot(value);

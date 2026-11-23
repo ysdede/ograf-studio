@@ -12,26 +12,26 @@ Hashes are the commits on this branch (`perf/0.40-optimizations`). Measurements 
 
 ## Summary
 
-| Commit | Change | Gain | Contract touched | Proposal |
-| --- | --- | --- | --- | --- |
-| `839a0b3` | Realtime updates return when mounted, touch only affected layers, wait for their Function calls | 6.4 → 24.8 updates/s | realtime `updateAction` no longer waits for completed GPU work | take, it uses 0.40's `gpuWork:'submitted'` |
-| `a9935cb` | Reuse the Function Worker during realtime playback | 24.8 → 51.3 updates/s; 14.5 → ~1 ms per call | global state can survive between calls | discuss |
-| `9dfeae0` | Re-sample only the layers a data refresh can affect | 51.3 → 62.3 updates/s; p50 17.5 → 6.2 ms | none (falls back to full re-sample) | take |
-| `1b5de29` | Function sandbox token from `getRandomValues` | Functions load on plain HTTP | none | take |
-| `a3bdf00` | Functions run in the page when a CSP forbids the sandbox | Functions load in Reality Hub | isolation and timeout differ | discuss |
-| `fdbbd60` | Runtime takes data pins from the hosting ElectroNode | pins reach graphics in any host | who owns the Nodos bridge | discuss |
-| `b91a68e` | Pin values stamped on arrival | jitter buffers can place samples | adds a timestamp to pin data | with `fdbbd60` |
-| `a7af0dc`, `059d1bb` | `iClock` for realtime shaders, `clockOriginMs` for Functions | shader and Function share one clock | new inputs; realtime vs deterministic | API proposal |
-| `0a3c1fc`, `2993854`, `c2314df` | Realtime shader layers get their own context, draw once per frame | 268 full-frame copies/s gone; GPU 25 → 14% | none outside realtime pages | take |
+| Commit                          | Change                                                                                          | Gain                                         | Contract touched                                               | Proposal                                   |
+| ------------------------------- | ----------------------------------------------------------------------------------------------- | -------------------------------------------- | -------------------------------------------------------------- | ------------------------------------------ |
+| `839a0b3`                       | Realtime updates return when mounted, touch only affected layers, wait for their Function calls | 6.4 → 24.8 updates/s                         | realtime `updateAction` no longer waits for completed GPU work | take, it uses 0.40's `gpuWork:'submitted'` |
+| `a9935cb`                       | Reuse the Function Worker during realtime playback                                              | 24.8 → 51.3 updates/s; 14.5 → ~1 ms per call | global state can survive between calls                         | discuss                                    |
+| `9dfeae0`                       | Re-sample only the layers a data refresh can affect                                             | 51.3 → 62.3 updates/s; p50 17.5 → 6.2 ms     | none (falls back to full re-sample)                            | take                                       |
+| `1b5de29`                       | Function sandbox token from `getRandomValues`                                                   | Functions load on plain HTTP                 | none                                                           | take                                       |
+| `a3bdf00`                       | Functions run in the page when a CSP forbids the sandbox                                        | Functions load in Reality Hub                | isolation and timeout differ                                   | discuss                                    |
+| `fdbbd60`                       | Runtime takes data pins from the hosting ElectroNode                                            | pins reach graphics in any host              | who owns the Nodos bridge                                      | discuss                                    |
+| `b91a68e`                       | Pin values stamped on arrival                                                                   | jitter buffers can place samples             | adds a timestamp to pin data                                   | with `fdbbd60`                             |
+| `a7af0dc`, `059d1bb`            | `iClock` for realtime shaders, `clockOriginMs` for Functions                                    | shader and Function share one clock          | new inputs; realtime vs deterministic                          | API proposal                               |
+| `0a3c1fc`, `2993854`, `c2314df` | Realtime shader layers get their own context, draw once per frame                               | 268 full-frame copies/s gone; GPU 25 → 14%   | none outside realtime pages                                    | take                                       |
 
 Throughput with the first three together (recorded 60 Hz Track, 12 s):
 
-| Build | Updates done / sent per s | Update p50 | Backlog after 12 s |
-| --- | --- | --- | --- |
-| Upstream | 6.4 / 24.6 | 139 ms | 218 |
-| + `839a0b3` | 24.8 / 43.8 | 42 ms | 227 |
-| + `a9935cb` | 51.3 / 52.9 | 17.5 ms | 19 |
-| + `9dfeae0` | 62.3 / 62.4 | 6.2 ms | 1 |
+| Build       | Updates done / sent per s | Update p50 | Backlog after 12 s |
+| ----------- | ------------------------- | ---------- | ------------------ |
+| Upstream    | 6.4 / 24.6                | 139 ms     | 218                |
+| + `839a0b3` | 24.8 / 43.8               | 42 ms      | 227                |
+| + `a9935cb` | 51.3 / 52.9               | 17.5 ms    | 19                 |
+| + `9dfeae0` | 62.3 / 62.4               | 6.2 ms     | 1                  |
 
 Upstream drops five of every six samples and runs more than 100 ms behind its own data. With the three commits it keeps up.
 

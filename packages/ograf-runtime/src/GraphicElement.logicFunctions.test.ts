@@ -250,7 +250,13 @@ describe('GraphicElement Nodos pin arrivals', () => {
       const seen = fixture.invoke.mock.calls
         .map(([ctx]) => ctx)
         .filter((ctx) => ctx.event.type === 'data')
-        .map((ctx) => ctx.data.settings as { amount: number; __nodos: { at: number; prior: { at: number; value: { amount: number } }[] } });
+        .map(
+          (ctx) =>
+            ctx.data.settings as {
+              amount: number;
+              __nodos: { at: number; prior: { at: number; value: { amount: number } }[] };
+            },
+        );
       expect(seen.at(-1)!.amount).toBe(3);
       const all = seen.flatMap((s) => [...s.__nodos.prior.map((p) => p.value.amount), s.amount]);
       expect(all).toEqual([1, 2, 3]);

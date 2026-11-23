@@ -1615,7 +1615,13 @@ describe('OGraf MCP authoring host', () => {
           runtimeProfile: {
             renderer: 'WebGL2',
             passes: 1,
-            supportedInputs: ['iTime', 'iClock', 'iResolution', 'iChannel0', 'iChannelResolution[0]'],
+            supportedInputs: [
+              'iTime',
+              'iClock',
+              'iResolution',
+              'iChannel0',
+              'iChannelResolution[0]',
+            ],
           },
         },
       },

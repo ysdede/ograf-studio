@@ -212,14 +212,23 @@ describe('shader fill content lifecycle', () => {
 
   it('draws the data updates of a realtime graphic once per frame, and leaves them to a running animation tick', async () => {
     const frames: Array<() => void> = [];
-    const mask = { ready: Promise.resolve(), update: vi.fn(async () => ({}) as HTMLCanvasElement), dispose: vi.fn() };
+    const mask = {
+      ready: Promise.resolve(),
+      update: vi.fn(async () => ({}) as HTMLCanvasElement),
+      dispose: vi.fn(),
+    };
     mocks.mask.mockReturnValue(mask);
     const { container, element, native } = fixture();
     Object.assign(container, {
-      getRootNode: () => ({ host: { hasAttribute: (name: string) => name === 'data-ograf-direct-shaders' } }),
+      getRootNode: () => ({
+        host: { hasAttribute: (name: string) => name === 'data-ograf-direct-shaders' },
+      }),
     });
     Object.assign(container.ownerDocument, {
-      defaultView: { requestAnimationFrame: (cb: () => void) => frames.push(cb), cancelAnimationFrame: vi.fn() },
+      defaultView: {
+        requestAnimationFrame: (cb: () => void) => frames.push(cb),
+        cancelAnimationFrame: vi.fn(),
+      },
     });
     mountShaderPaintContent(container, element, {}, native);
     await waitForShaderPaintContentReady(container);

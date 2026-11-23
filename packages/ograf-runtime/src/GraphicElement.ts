@@ -2142,17 +2142,29 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
    * rules, collection items or rule targets read data indirectly and always count; the rest read
    * only their bindings' data keys. A data update then redraws just the layers it can affect.
    */
-  #readsAny(layer: CompiledGraphicDescriptor['layers'][number], keys: ReadonlySet<string> | null): boolean {
+  #readsAny(
+    layer: CompiledGraphicDescriptor['layers'][number],
+    keys: ReadonlySet<string> | null,
+  ): boolean {
     if (!keys) return true;
-    if ((layer.visualRules?.length ?? 0) > 0 || layer.collectionItem || this.#rules?.targeted.has(layer.id)) return true;
-    return (layer.bindings ?? (layer.binding ? [layer.binding] : [])).some((binding) => keys.has(binding.dataKey));
+    if (
+      (layer.visualRules?.length ?? 0) > 0 ||
+      layer.collectionItem ||
+      this.#rules?.targeted.has(layer.id)
+    )
+      return true;
+    return (layer.bindings ?? (layer.binding ? [layer.binding] : [])).some((binding) =>
+      keys.has(binding.dataKey),
+    );
   }
 
   /** Data keys whose values differ from the committed data (by identity). */
   #changedDataKeys(data: unknown): Set<string> {
     return new Set(
       data && typeof data === 'object'
-        ? Object.entries(data as Record<string, unknown>).filter(([key, value]) => !Object.is(this.#lastData[key], value)).map(([key]) => key)
+        ? Object.entries(data as Record<string, unknown>)
+            .filter(([key, value]) => !Object.is(this.#lastData[key], value))
+            .map(([key]) => key)
         : [],
     );
   }
@@ -2470,7 +2482,10 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
     this.#refreshBoundLayers();
   }
 
-  #validateShaderData(data: Record<string, unknown>, keys: ReadonlySet<string> | null = null): void {
+  #validateShaderData(
+    data: Record<string, unknown>,
+    keys: ReadonlySet<string> | null = null,
+  ): void {
     for (const layer of this.activeDescriptor.layers) {
       if (!this.#readsAny(layer, keys)) continue;
       const element = resolveBoundElement(layer, data);
@@ -2579,7 +2594,8 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
 
   #connectNodosPins(): void {
     const view = this.ownerDocument?.defaultView;
-    if (!view || this.#renderType !== 'realtime' || this.localName === NODOS_PAGE_GRAPHIC_TAG) return;
+    if (!view || this.#renderType !== 'realtime' || this.localName === NODOS_PAGE_GRAPHIC_TAG)
+      return;
     const pins: NodosPinBinding = {
       unsubscribe: () => {},
       keys: new Set(Object.keys(this.descriptor.dataDefaults ?? {})),
@@ -2766,7 +2782,12 @@ export abstract class GraphicElement extends HTMLElement implements Graphic {
 
   async updateAction(params: UpdateActionParams): Promise<ReturnPayload | undefined> {
     const owned = this.#nodosPins?.owned;
-    if (owned?.size && params.data && typeof params.data === 'object' && !Array.isArray(params.data))
+    if (
+      owned?.size &&
+      params.data &&
+      typeof params.data === 'object' &&
+      !Array.isArray(params.data)
+    )
       params = {
         ...params,
         data: Object.fromEntries(
